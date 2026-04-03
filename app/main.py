@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from app.core.config import settings
-from app.routers import auth, categories, products, uploads, users, orders, dashboard
+from app.routers import auth, categories, products, uploads, users, orders, dashboard, payments
 
 app = FastAPI(title="ClayBag API", version="1.0.0")
 
@@ -28,6 +28,7 @@ app.include_router(uploads.router)
 app.include_router(users.router)
 app.include_router(orders.router)
 app.include_router(dashboard.router)
+app.include_router(payments.router)
 
 
 @app.get("/")

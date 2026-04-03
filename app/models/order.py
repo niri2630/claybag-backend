@@ -28,6 +28,9 @@ class Order(Base):
     shipping_city = Column(String, nullable=False)
     shipping_pincode = Column(String, nullable=False)
     notes = Column(Text, nullable=True)
+    cf_order_id = Column(String, nullable=True)  # Cashfree order ID
+    payment_session_id = Column(String, nullable=True)  # Cashfree payment session
+    payment_status = Column(String, nullable=True)  # Cashfree payment status
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

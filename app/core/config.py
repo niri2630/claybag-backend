@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
 
+    # Cashfree Payment Gateway
+    CASHFREE_APP_ID: str = ""
+    CASHFREE_SECRET_KEY: str = ""
+    CASHFREE_ENV: str = "sandbox"  # "sandbox" or "production"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     @property
     def origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
