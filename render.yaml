@@ -2,13 +2,12 @@ services:
   - type: web
     name: claybag-backend
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: claybag-db
-          property: connectionString
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: ALLOWED_ORIGINS
@@ -23,8 +22,3 @@ services:
         value: https://claybag.vercel.app
       - key: PYTHON_VERSION
         value: "3.11"
-
-databases:
-  - name: claybag-db
-    plan: starter
-    databaseName: claybag
