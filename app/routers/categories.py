@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc
 from typing import List, Optional
+import time
 
 from app.database import get_db
 from app.models.category import Category, SubCategory
@@ -14,10 +15,13 @@ from app.core.security import get_current_admin
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
+# Simple in-memory cache for categories (refreshes every 5 minutes)
+_categories_cache = {"data": None, "timestamp": 0}
+CACHE_TTL = 300  # 5 minutes
+
 
 def _enrich_categories(categories, db: Session):
     """Add product_count to each subcategory."""
-    # Get all counts in one query
     counts = dict(
         db.query(Product.subcategory_id, sqlfunc.count(Product.id))
         .filter(Product.is_active == True)
@@ -33,12 +37,31 @@ def _enrich_categories(categories, db: Session):
     return result
 
 
+def _invalidate_cache():
+    _categories_cache["data"] = None
+    _categories_cache["timestamp"] = 0
+
+
 # ── Categories ──────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[CategoryOut])
-def list_categories(db: Session = Depends(get_db)):
-    cats = db.query(Category).filter(Category.is_active == True).all()
-    return _enrich_categories(cats, db)
+def list_categories(response: Response, db: Session = Depends(get_db)):
+    now = time.time()
+    if _categories_cache["data"] and (now - _categories_cache["timestamp"]) < CACHE_TTL:
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return _categories_cache["data"]
+
+    cats = (
+        db.query(Category)
+        .options(joinedload(Category.subcategories))
+        .filter(Category.is_active == True)
+        .all()
+    )
+    result = _enrich_categories(cats, db)
+    _categories_cache["data"] = result
+    _categories_cache["timestamp"] = now
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return result
 
 
 @router.get("/all", response_model=List[CategoryOut])
@@ -70,6 +93,7 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db), _=Depen
     db.add(cat)
     db.commit()
     db.refresh(cat)
+    _invalidate_cache()
     return cat
 
 
@@ -82,6 +106,7 @@ def update_category(category_id: int, data: CategoryUpdate, db: Session = Depend
         setattr(cat, k, v)
     db.commit()
     db.refresh(cat)
+    _invalidate_cache()
     return cat
 
 
@@ -92,6 +117,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db), _=Depends(g
         raise HTTPException(404, "Category not found")
     db.delete(cat)
     db.commit()
+    _invalidate_cache()
     return {"detail": "Deleted"}
 
 
@@ -113,6 +139,7 @@ def create_subcategory(data: SubCategoryCreate, db: Session = Depends(get_db), _
     db.add(sub)
     db.commit()
     db.refresh(sub)
+    _invalidate_cache()
     return sub
 
 
@@ -125,6 +152,7 @@ def update_subcategory(sub_id: int, data: SubCategoryUpdate, db: Session = Depen
         setattr(sub, k, v)
     db.commit()
     db.refresh(sub)
+    _invalidate_cache()
     return sub
 
 
@@ -135,4 +163,5 @@ def delete_subcategory(sub_id: int, db: Session = Depends(get_db), _=Depends(get
         raise HTTPException(404, "SubCategory not found")
     db.delete(sub)
     db.commit()
+    _invalidate_cache()
     return {"detail": "Deleted"}
