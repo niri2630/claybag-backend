@@ -11,8 +11,11 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, index=True, nullable=False)
+    icon = Column(String, default="category", nullable=False)
     image_url = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    # "multi_qty" = per-variant quantity (apparel), "single_select" = pick one per group (paper, bottles)
+    variant_mode = Column(String, default="multi_qty", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     subcategories = relationship("SubCategory", back_populates="category", cascade="all, delete-orphan")

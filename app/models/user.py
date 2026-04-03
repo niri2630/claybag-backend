@@ -19,3 +19,4 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     orders = relationship("Order", back_populates="user")
+    addresses = relationship("Address", back_populates="user", order_by="Address.is_default.desc()")

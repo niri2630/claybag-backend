@@ -86,6 +86,7 @@ class ProductOut(BaseModel):
     base_price: float
     is_active: bool
     has_variants: bool
+    variant_mode: str = "multi_qty"  # from parent category
     created_at: datetime
     images: List[ProductImageOut] = []
     variants: List[ProductVariantOut] = []

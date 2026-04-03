@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional, Tuple
 
 from app.database import get_db
 from app.models.order import Order, OrderItem, OrderTracking, OrderStatus
@@ -11,7 +11,7 @@ from app.core.security import get_current_user, get_current_admin
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-def calculate_price(product: Product, variant: ProductVariant | None, quantity: int, db: Session) -> tuple[float, float]:
+def calculate_price(product: Product, variant: Optional[ProductVariant], quantity: int, db: Session) -> Tuple[float, float]:
     base = product.base_price + (variant.price_adjustment if variant else 0)
     slabs = db.query(DiscountSlab).filter(
         DiscountSlab.product_id == product.id,

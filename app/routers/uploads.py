@@ -12,18 +12,25 @@ from app.core.config import settings
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB — allows high-res product photography
 
 
 def save_file(file: UploadFile) -> str:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(400, "Only JPEG, PNG, WEBP allowed")
+
+    # Read file and check size
+    data = file.file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(400, f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB")
+
     ext = file.filename.rsplit(".", 1)[-1]
     filename = f"{uuid.uuid4()}.{ext}"
     path = os.path.join(settings.UPLOAD_DIR, filename)
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     with open(path, "wb") as f:
-        f.write(file.file.read())
-    return f"/uploads/{filename}"
+        f.write(data)
+    return f"/media/{filename}"
 
 
 @router.post("/products/{product_id}/images", response_model=ProductImageOut)

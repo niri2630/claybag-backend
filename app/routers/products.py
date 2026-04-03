@@ -15,6 +15,35 @@ from app.core.security import get_current_admin
 router = APIRouter(prefix="/products", tags=["products"])
 
 
+def _enrich_product(p: Product, db: Session) -> dict:
+    """Add variant_mode from the product's category to the response."""
+    data = ProductOut.model_validate(p).model_dump()
+    sub = db.query(SubCategory).filter(SubCategory.id == p.subcategory_id).first()
+    if sub:
+        cat = db.query(Category).filter(Category.id == sub.category_id).first()
+        if cat:
+            data["variant_mode"] = cat.variant_mode
+    return data
+
+
+def _enrich_products(products: list, db: Session) -> list:
+    """Bulk enrich with variant_mode, using a cache for efficiency."""
+    cache = {}  # subcategory_id -> variant_mode
+    result = []
+    for p in products:
+        if p.subcategory_id not in cache:
+            sub = db.query(SubCategory).filter(SubCategory.id == p.subcategory_id).first()
+            if sub:
+                cat = db.query(Category).filter(Category.id == sub.category_id).first()
+                cache[p.subcategory_id] = cat.variant_mode if cat else "multi_qty"
+            else:
+                cache[p.subcategory_id] = "multi_qty"
+        data = ProductOut.model_validate(p).model_dump()
+        data["variant_mode"] = cache[p.subcategory_id]
+        result.append(data)
+    return result
+
+
 @router.get("", response_model=List[ProductOut])
 def list_products(
     subcategory_id: Optional[int] = None,
@@ -36,7 +65,7 @@ def list_products(
                 return []
         else:
             return []
-    return q.offset(skip).limit(limit).all()
+    return _enrich_products(q.offset(skip).limit(limit).all(), db)
 
 
 @router.get("/all", response_model=List[ProductOut])
@@ -50,7 +79,7 @@ def list_all_products(
     q = db.query(Product)
     if subcategory_id:
         q = q.filter(Product.subcategory_id == subcategory_id)
-    return q.offset(skip).limit(limit).all()
+    return _enrich_products(q.offset(skip).limit(limit).all(), db)
 
 
 @router.get("/{product_id}", response_model=ProductOut)
@@ -58,7 +87,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(404, "Product not found")
-    return p
+    return _enrich_product(p, db)
 
 
 @router.post("", response_model=ProductOut)

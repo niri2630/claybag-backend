@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sqlfunc
 from typing import List, Optional
 
 from app.database import get_db
 from app.models.category import Category, SubCategory
+from app.models.product import Product
 from app.schemas.category import (
     CategoryCreate, CategoryUpdate, CategoryOut,
     SubCategoryCreate, SubCategoryUpdate, SubCategoryOut
@@ -13,11 +15,30 @@ from app.core.security import get_current_admin
 router = APIRouter(prefix="/categories", tags=["categories"])
 
 
+def _enrich_categories(categories, db: Session):
+    """Add product_count to each subcategory."""
+    # Get all counts in one query
+    counts = dict(
+        db.query(Product.subcategory_id, sqlfunc.count(Product.id))
+        .filter(Product.is_active == True)
+        .group_by(Product.subcategory_id)
+        .all()
+    )
+    result = []
+    for cat in categories:
+        cat_data = CategoryOut.model_validate(cat).model_dump()
+        for sub in cat_data.get("subcategories", []):
+            sub["product_count"] = counts.get(sub["id"], 0)
+        result.append(cat_data)
+    return result
+
+
 # ── Categories ──────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[CategoryOut])
 def list_categories(db: Session = Depends(get_db)):
-    return db.query(Category).filter(Category.is_active == True).all()
+    cats = db.query(Category).filter(Category.is_active == True).all()
+    return _enrich_categories(cats, db)
 
 
 @router.get("/all", response_model=List[CategoryOut])
