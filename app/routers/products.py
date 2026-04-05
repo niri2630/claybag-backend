@@ -15,31 +15,52 @@ from app.core.security import get_current_admin
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-def _enrich_product(p: Product, db: Session) -> dict:
-    """Add variant_mode from the product's category to the response."""
-    data = ProductOut.model_validate(p).model_dump()
+def _get_variant_mode(p: Product, db: Session) -> str:
+    """Determine variant_mode per product based on its actual variant types.
+    If product has 2+ distinct variant types (e.g. size + color), use single_select.
+    Otherwise fall back to the category's variant_mode or multi_qty."""
+    if p.variants:
+        distinct_types = set(v.variant_type.lower() for v in p.variants)
+        if len(distinct_types) > 1:
+            return "single_select"
+    # Fall back to category setting
     sub = db.query(SubCategory).filter(SubCategory.id == p.subcategory_id).first()
     if sub:
         cat = db.query(Category).filter(Category.id == sub.category_id).first()
         if cat:
-            data["variant_mode"] = cat.variant_mode
+            return cat.variant_mode
+    return "multi_qty"
+
+
+def _enrich_product(p: Product, db: Session) -> dict:
+    """Add variant_mode to the response based on product's variant types."""
+    data = ProductOut.model_validate(p).model_dump()
+    data["variant_mode"] = _get_variant_mode(p, db)
     return data
 
 
 def _enrich_products(products: list, db: Session) -> list:
-    """Bulk enrich with variant_mode, using a cache for efficiency."""
-    cache = {}  # subcategory_id -> variant_mode
+    """Bulk enrich with variant_mode."""
+    cat_cache = {}  # subcategory_id -> variant_mode
     result = []
     for p in products:
-        if p.subcategory_id not in cache:
+        data = ProductOut.model_validate(p).model_dump()
+        # Check if product has multiple variant types
+        if p.variants:
+            distinct_types = set(v.variant_type.lower() for v in p.variants)
+            if len(distinct_types) > 1:
+                data["variant_mode"] = "single_select"
+                result.append(data)
+                continue
+        # Fall back to category setting
+        if p.subcategory_id not in cat_cache:
             sub = db.query(SubCategory).filter(SubCategory.id == p.subcategory_id).first()
             if sub:
                 cat = db.query(Category).filter(Category.id == sub.category_id).first()
-                cache[p.subcategory_id] = cat.variant_mode if cat else "multi_qty"
+                cat_cache[p.subcategory_id] = cat.variant_mode if cat else "multi_qty"
             else:
-                cache[p.subcategory_id] = "multi_qty"
-        data = ProductOut.model_validate(p).model_dump()
-        data["variant_mode"] = cache[p.subcategory_id]
+                cat_cache[p.subcategory_id] = "multi_qty"
+        data["variant_mode"] = cat_cache[p.subcategory_id]
         result.append(data)
     return result
 
