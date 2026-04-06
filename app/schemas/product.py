@@ -63,29 +63,44 @@ class DiscountSlabOut(BaseModel):
 class ProductCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    specifications: Optional[str] = None
+    use_cases: Optional[str] = None
+    materials: Optional[str] = None
+    delivery_info: Optional[str] = None
     subcategory_id: int
     base_price: float
     is_active: bool = True
     has_variants: bool = False
+    is_featured: bool = False
 
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    specifications: Optional[str] = None
+    use_cases: Optional[str] = None
+    materials: Optional[str] = None
+    delivery_info: Optional[str] = None
     subcategory_id: Optional[int] = None
     base_price: Optional[float] = None
     is_active: Optional[bool] = None
     has_variants: Optional[bool] = None
+    is_featured: Optional[bool] = None
 
 
 class ProductOut(BaseModel):
     id: int
     name: str
     description: Optional[str]
+    specifications: Optional[str]
+    use_cases: Optional[str]
+    materials: Optional[str]
+    delivery_info: Optional[str]
     subcategory_id: int
     base_price: float
     is_active: bool
     has_variants: bool
+    is_featured: bool
     variant_mode: str = "multi_qty"  # from parent category
     created_at: datetime
     images: List[ProductImageOut] = []

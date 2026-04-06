@@ -11,10 +11,15 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    specifications = Column(Text, nullable=True)  # Product specs (JSON or plain text)
+    use_cases = Column(Text, nullable=True)        # Target use cases
+    materials = Column(Text, nullable=True)        # Material/build details
+    delivery_info = Column(Text, nullable=True)    # Custom delivery notes
     subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=False)
     base_price = Column(Float, nullable=False)
     is_active = Column(Boolean, default=True)
     has_variants = Column(Boolean, default=False)  # sizes, colors, etc.
+    is_featured = Column(Boolean, default=False)   # show in hot sellers on homepage
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

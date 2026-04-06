@@ -92,6 +92,13 @@ def list_products(
     return _enrich_products(q.offset(skip).limit(limit).all(), db)
 
 
+@router.get("/featured", response_model=List[ProductOut])
+def list_featured_products(db: Session = Depends(get_db)):
+    """Get products marked as featured (hot sellers)."""
+    products = db.query(Product).filter(Product.is_active == True, Product.is_featured == True).all()
+    return _enrich_products(products, db)
+
+
 @router.get("/all", response_model=List[ProductOut])
 def list_all_products(
     subcategory_id: Optional[int] = None,
