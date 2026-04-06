@@ -69,12 +69,15 @@ def _enrich_products(products: list, db: Session) -> list:
 def list_products(
     subcategory_id: Optional[int] = None,
     category_slug: Optional[str] = None,
+    search: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db)
 ):
     q = db.query(Product).filter(Product.is_active == True)
-    if subcategory_id:
+    if search:
+        q = q.filter(Product.name.ilike(f"%{search}%"))
+    elif subcategory_id:
         q = q.filter(Product.subcategory_id == subcategory_id)
     elif category_slug:
         cat = db.query(Category).filter(Category.slug == category_slug).first()
