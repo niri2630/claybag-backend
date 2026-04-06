@@ -95,3 +95,23 @@ def update_order_status(order_id: int, data: OrderStatusUpdate, db: Session = De
     db.commit()
     db.refresh(order)
     return order
+
+
+@router.post("/{order_id}/cancel", response_model=OrderOut)
+def cancel_order(order_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Customer cancels their own order (e.g. cancelled payment in Cashfree modal)."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.user_id != current_user.id:
+        raise HTTPException(403, "Access denied")
+    if order.payment_status == "PAID":
+        raise HTTPException(400, "Cannot cancel a paid order. Contact support for refund.")
+    if order.status == OrderStatus.CANCELLED:
+        return order  # Already cancelled
+    order.status = OrderStatus.CANCELLED
+    order.payment_status = "CANCELLED"
+    db.add(OrderTracking(order_id=order.id, status=OrderStatus.CANCELLED, note="Customer cancelled payment"))
+    db.commit()
+    db.refresh(order)
+    return order
