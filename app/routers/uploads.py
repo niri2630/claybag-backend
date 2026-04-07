@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
@@ -108,6 +109,52 @@ def upload_product_image(
     db.commit()
     db.refresh(img)
     return img
+
+
+@router.post("/products/{product_id}/images/batch", response_model=List[ProductImageOut])
+def upload_product_images_batch(
+    product_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_admin)
+):
+    """Upload multiple images at once. The first uploaded image becomes primary
+    if the product has no existing images. Subsequent images become secondary."""
+    if not db.query(Product).filter(Product.id == product_id).first():
+        raise HTTPException(404, "Product not found")
+    if not files:
+        raise HTTPException(400, "No files provided")
+
+    existing_count = db.query(ProductImage).filter(ProductImage.product_id == product_id).count()
+    has_primary = db.query(ProductImage).filter(
+        ProductImage.product_id == product_id,
+        ProductImage.is_primary == True
+    ).first() is not None
+
+    saved: list[ProductImage] = []
+    for idx, file in enumerate(files):
+        try:
+            image_url = save_file(file)
+        except HTTPException:
+            # Skip individual failures so the batch can continue
+            continue
+        # First file becomes primary only if no existing primary
+        is_primary = (idx == 0) and not has_primary
+        if is_primary:
+            has_primary = True  # Subsequent ones in this batch stay secondary
+        img = ProductImage(
+            product_id=product_id,
+            image_url=image_url,
+            is_primary=is_primary,
+            sort_order=existing_count + idx,
+        )
+        db.add(img)
+        saved.append(img)
+
+    db.commit()
+    for img in saved:
+        db.refresh(img)
+    return saved
 
 
 @router.delete("/products/{product_id}/images/{image_id}")
