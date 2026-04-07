@@ -10,6 +10,7 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=True)
     description = Column(Text, nullable=True)
     specifications = Column(Text, nullable=True)  # Product specs (JSON or plain text)
     use_cases = Column(Text, nullable=True)        # Target use cases

@@ -91,6 +91,7 @@ class ProductUpdate(BaseModel):
 class ProductOut(BaseModel):
     id: int
     name: str
+    slug: Optional[str] = None
     description: Optional[str]
     specifications: Optional[str]
     use_cases: Optional[str]

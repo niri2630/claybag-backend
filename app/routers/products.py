@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -13,6 +14,34 @@ from app.schemas.product import (
 from app.core.security import get_current_admin
 
 router = APIRouter(prefix="/products", tags=["products"])
+
+
+def _slugify(text: str) -> str:
+    """Convert a product name to a URL-safe slug."""
+    if not text:
+        return ""
+    # Lowercase, replace non-alphanumeric with hyphens
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower())
+    # Strip leading/trailing hyphens
+    s = s.strip("-")
+    # Collapse multiple hyphens
+    s = re.sub(r"-+", "-", s)
+    return s[:200]  # cap length
+
+
+def _generate_unique_slug(db: Session, name: str, exclude_id: Optional[int] = None) -> str:
+    """Generate a unique slug. Append -2, -3 etc if conflicts exist."""
+    base = _slugify(name) or "product"
+    slug = base
+    n = 2
+    while True:
+        q = db.query(Product).filter(Product.slug == slug)
+        if exclude_id is not None:
+            q = q.filter(Product.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f"{base}-{n}"
+        n += 1
 
 
 def _get_variant_mode(p: Product, db: Session) -> str:
@@ -113,6 +142,14 @@ def list_all_products(
     return _enrich_products(q.offset(skip).limit(limit).all(), db)
 
 
+@router.get("/slug/{slug}", response_model=ProductOut)
+def get_product_by_slug(slug: str, db: Session = Depends(get_db)):
+    p = db.query(Product).filter(Product.slug == slug).first()
+    if not p:
+        raise HTTPException(404, "Product not found")
+    return _enrich_product(p, db)
+
+
 @router.get("/{product_id}", response_model=ProductOut)
 def get_product(product_id: int, db: Session = Depends(get_db)):
     p = db.query(Product).filter(Product.id == product_id).first()
@@ -123,11 +160,13 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=ProductOut)
 def create_product(data: ProductCreate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
-    p = Product(**data.model_dump())
+    payload = data.model_dump()
+    p = Product(**payload)
+    p.slug = _generate_unique_slug(db, payload["name"])
     db.add(p)
     db.commit()
     db.refresh(p)
-    return p
+    return _enrich_product(p, db)
 
 
 @router.put("/{product_id}", response_model=ProductOut)
@@ -135,11 +174,16 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(404, "Product not found")
-    for k, v in data.model_dump(exclude_none=True).items():
+    update = data.model_dump(exclude_none=True)
+    name_changed = "name" in update and update["name"] != p.name
+    for k, v in update.items():
         setattr(p, k, v)
+    # Regenerate slug if name changed or slug is missing
+    if name_changed or not p.slug:
+        p.slug = _generate_unique_slug(db, p.name, exclude_id=p.id)
     db.commit()
     db.refresh(p)
-    return p
+    return _enrich_product(p, db)
 
 
 @router.delete("/{product_id}")
