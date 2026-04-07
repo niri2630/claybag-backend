@@ -12,5 +12,7 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run alembic migrations then start uvicorn.
+# Migrations are idempotent — alembic skips ones already applied.
+# If migrations fail the container exits and ECS rolls back to the previous task.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
