@@ -100,7 +100,7 @@ def list_products(
     category_slug: Optional[str] = None,
     search: Optional[str] = None,
     skip: int = 0,
-    limit: int = 50,
+    limit: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
     q = db.query(Product).filter(Product.is_active == True)
@@ -118,7 +118,12 @@ def list_products(
                 return []
         else:
             return []
-    return _enrich_products(q.offset(skip).limit(limit).all(), db)
+    q = q.order_by(Product.id.desc())
+    if skip:
+        q = q.offset(skip)
+    if limit:
+        q = q.limit(limit)
+    return _enrich_products(q.all(), db)
 
 
 @router.get("/featured", response_model=List[ProductOut])
@@ -131,15 +136,23 @@ def list_featured_products(db: Session = Depends(get_db)):
 @router.get("/all", response_model=List[ProductOut])
 def list_all_products(
     subcategory_id: Optional[int] = None,
+    search: Optional[str] = None,
     skip: int = 0,
-    limit: int = 100,
+    limit: Optional[int] = None,
     db: Session = Depends(get_db),
     _=Depends(get_current_admin)
 ):
     q = db.query(Product)
-    if subcategory_id:
+    if search:
+        q = q.filter(Product.name.ilike(f"%{search}%"))
+    elif subcategory_id:
         q = q.filter(Product.subcategory_id == subcategory_id)
-    return _enrich_products(q.offset(skip).limit(limit).all(), db)
+    q = q.order_by(Product.id.desc())
+    if skip:
+        q = q.offset(skip)
+    if limit:
+        q = q.limit(limit)
+    return _enrich_products(q.all(), db)
 
 
 @router.get("/slug/{slug}", response_model=ProductOut)
