@@ -13,7 +13,11 @@ class OrderItemCreate(BaseModel):
 class OrderItemOut(BaseModel):
     id: int
     product_id: int
-    variant_id: Optional[int]
+    product_name: Optional[str] = None
+    product_slug: Optional[str] = None
+    product_image: Optional[str] = None
+    variant_id: Optional[int] = None
+    variant_label: Optional[str] = None
     quantity: int
     unit_price: float
     total_price: float

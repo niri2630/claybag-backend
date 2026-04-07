@@ -4,11 +4,48 @@ from typing import List, Optional, Tuple
 
 from app.database import get_db
 from app.models.order import Order, OrderItem, OrderTracking, OrderStatus
-from app.models.product import Product, ProductVariant, DiscountSlab
+from app.models.product import Product, ProductVariant, ProductImage, DiscountSlab
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _enrich_order(order: Order, db: Session) -> dict:
+    """Populate product_name, product_slug, product_image and variant_label on each item."""
+    data = OrderOut.model_validate(order).model_dump()
+    if not data.get("items"):
+        return data
+
+    product_ids = {it["product_id"] for it in data["items"]}
+    variant_ids = {it["variant_id"] for it in data["items"] if it.get("variant_id")}
+
+    products = {p.id: p for p in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    variants = {v.id: v for v in db.query(ProductVariant).filter(ProductVariant.id.in_(variant_ids)).all()} if variant_ids else {}
+
+    # Primary image per product
+    images: dict[int, str] = {}
+    if product_ids:
+        rows = db.query(ProductImage).filter(ProductImage.product_id.in_(product_ids)).order_by(ProductImage.is_primary.desc(), ProductImage.sort_order.asc()).all()
+        for img in rows:
+            if img.product_id not in images:
+                images[img.product_id] = img.image_url
+
+    for it in data["items"]:
+        prod = products.get(it["product_id"])
+        if prod:
+            it["product_name"] = prod.name
+            it["product_slug"] = prod.slug
+            it["product_image"] = images.get(prod.id)
+        if it.get("variant_id"):
+            v = variants.get(it["variant_id"])
+            if v:
+                it["variant_label"] = f"{v.variant_type.capitalize()}: {v.variant_value}"
+    return data
+
+
+def _enrich_orders(orders: list, db: Session) -> list:
+    return [_enrich_order(o, db) for o in orders]
 
 
 def calculate_price(product: Product, variant: Optional[ProductVariant], quantity: int, db: Session) -> Tuple[float, float]:
@@ -65,14 +102,16 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
     db.add(OrderTracking(order_id=order.id, status=OrderStatus.PENDING, note="Order placed"))
     db.commit()
     db.refresh(order)
-    return order
+    return _enrich_order(order, db)
 
 
 @router.get("", response_model=List[OrderOut])
 def list_orders(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     if current_user.is_admin:
-        return db.query(Order).order_by(Order.created_at.desc()).all()
-    return db.query(Order).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
+        orders = db.query(Order).order_by(Order.created_at.desc()).all()
+    else:
+        orders = db.query(Order).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
+    return _enrich_orders(orders, db)
 
 
 @router.get("/{order_id}", response_model=OrderOut)
@@ -82,7 +121,7 @@ def get_order(order_id: int, db: Session = Depends(get_db), current_user=Depends
         raise HTTPException(404, "Order not found")
     if not current_user.is_admin and order.user_id != current_user.id:
         raise HTTPException(403, "Access denied")
-    return order
+    return _enrich_order(order, db)
 
 
 @router.put("/{order_id}/status", response_model=OrderOut)
@@ -94,7 +133,7 @@ def update_order_status(order_id: int, data: OrderStatusUpdate, db: Session = De
     db.add(OrderTracking(order_id=order.id, status=data.status, note=data.note))
     db.commit()
     db.refresh(order)
-    return order
+    return _enrich_order(order, db)
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)
@@ -108,10 +147,10 @@ def cancel_order(order_id: int, db: Session = Depends(get_db), current_user=Depe
     if order.payment_status == "PAID":
         raise HTTPException(400, "Cannot cancel a paid order. Contact support for refund.")
     if order.status == OrderStatus.CANCELLED:
-        return order  # Already cancelled
+        return _enrich_order(order, db)
     order.status = OrderStatus.CANCELLED
     order.payment_status = "CANCELLED"
     db.add(OrderTracking(order_id=order.id, status=OrderStatus.CANCELLED, note="Customer cancelled payment"))
     db.commit()
     db.refresh(order)
-    return order
+    return _enrich_order(order, db)
