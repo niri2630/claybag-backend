@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
@@ -90,6 +90,7 @@ def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
     is_primary: bool = False,
+    variant_id: Optional[int] = None,
     db: Session = Depends(get_db),
     _=Depends(get_current_admin)
 ):
@@ -101,11 +102,30 @@ def upload_product_image(
     count = db.query(ProductImage).filter(ProductImage.product_id == product_id).count()
     img = ProductImage(
         product_id=product_id,
+        variant_id=variant_id,
         image_url=image_url,
         is_primary=is_primary or count == 0,
         sort_order=count
     )
     db.add(img)
+    db.commit()
+    db.refresh(img)
+    return img
+
+
+@router.put("/products/{product_id}/images/{image_id}/variant", response_model=ProductImageOut)
+def update_image_variant(
+    product_id: int,
+    image_id: int,
+    variant_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_admin)
+):
+    """Tag or untag an existing image with a variant (e.g. color)."""
+    img = db.query(ProductImage).filter(ProductImage.id == image_id, ProductImage.product_id == product_id).first()
+    if not img:
+        raise HTTPException(404, "Image not found")
+    img.variant_id = variant_id
     db.commit()
     db.refresh(img)
     return img

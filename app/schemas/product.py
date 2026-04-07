@@ -8,6 +8,7 @@ class ProductImageOut(BaseModel):
     image_url: str
     is_primary: bool
     sort_order: int
+    variant_id: Optional[int] = None
 
     class Config:
         from_attributes = True
