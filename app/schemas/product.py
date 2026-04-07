@@ -92,16 +92,16 @@ class ProductOut(BaseModel):
     id: int
     name: str
     slug: Optional[str] = None
-    description: Optional[str]
-    specifications: Optional[str]
-    use_cases: Optional[str]
-    materials: Optional[str]
-    delivery_info: Optional[str]
+    description: Optional[str] = None
+    specifications: Optional[str] = None
+    use_cases: Optional[str] = None
+    materials: Optional[str] = None
+    delivery_info: Optional[str] = None
     subcategory_id: int
     base_price: float
-    is_active: bool
-    has_variants: bool
-    is_featured: bool
+    is_active: bool = True
+    has_variants: bool = False
+    is_featured: bool = False
     variant_mode: str = "multi_qty"  # from parent category
     created_at: datetime
     images: List[ProductImageOut] = []

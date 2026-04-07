@@ -26,6 +26,11 @@ def _slugify(text: str) -> str:
 
 
 def upgrade() -> None:
+    # First fix any NULL is_featured rows from the previous migration
+    # (the column was added nullable, this ensures it's never NULL)
+    op.execute("UPDATE products SET is_featured = false WHERE is_featured IS NULL")
+    op.alter_column('products', 'is_featured', nullable=False, server_default=sa.text("false"))
+
     # Add the slug column (nullable initially so backfill works)
     op.add_column('products', sa.Column('slug', sa.String(), nullable=True))
 
