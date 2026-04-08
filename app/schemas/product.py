@@ -44,18 +44,22 @@ class ProductVariantOut(BaseModel):
 
 class DiscountSlabCreate(BaseModel):
     min_quantity: int
-    discount_percentage: float
+    # Either price_per_unit (new, preferred) OR discount_percentage (legacy)
+    price_per_unit: Optional[float] = None
+    discount_percentage: Optional[float] = None
 
 
 class DiscountSlabUpdate(BaseModel):
     min_quantity: Optional[int] = None
+    price_per_unit: Optional[float] = None
     discount_percentage: Optional[float] = None
 
 
 class DiscountSlabOut(BaseModel):
     id: int
     min_quantity: int
-    discount_percentage: float
+    price_per_unit: Optional[float] = None
+    discount_percentage: Optional[float] = None
 
     class Config:
         from_attributes = True

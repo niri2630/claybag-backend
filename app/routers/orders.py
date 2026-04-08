@@ -1,3 +1,5 @@
+import secrets
+import string
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional, Tuple
@@ -9,6 +11,24 @@ from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+# Order number generation -- random, unguessable, non-sequential.
+# Format: CB-XXXXXXXX where X is crypto-random alphanum (uppercase letters + digits)
+# Excludes confusing characters (0/O, 1/I/L) for readability.
+_ORDER_NUMBER_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"  # 31 chars, ~39 bits entropy for 8 chars
+
+
+def _generate_order_number(db: Session, max_attempts: int = 10) -> str:
+    """Generate a unique random order number like 'CB-A7K9M2P4'."""
+    for _ in range(max_attempts):
+        suffix = "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(8))
+        candidate = f"CB-{suffix}"
+        if not db.query(Order).filter(Order.order_number == candidate).first():
+            return candidate
+    # Extremely unlikely; fall back to longer suffix
+    suffix = "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(12))
+    return f"CB-{suffix}"
 
 
 def _enrich_order(order: Order, db: Session) -> dict:
@@ -49,14 +69,35 @@ def _enrich_orders(orders: list, db: Session) -> list:
 
 
 def calculate_price(product: Product, variant: Optional[ProductVariant], quantity: int, db: Session) -> Tuple[float, float]:
-    base = product.base_price + (variant.price_adjustment if variant else 0)
-    slabs = db.query(DiscountSlab).filter(
+    """Calculate the line total and applied discount percentage.
+
+    Pricing priority for a matched slab:
+      1. If `price_per_unit` is set → use it as the flat per-piece price
+         (variant price_adjustment still applies on top). Returned
+         discount_percentage is 0 because no % was applied — the slab
+         price IS the final price.
+      2. Else if `discount_percentage` is set → apply % off base price.
+      3. Else → no slab, use base price.
+    """
+    variant_adj = variant.price_adjustment if variant else 0
+    base = product.base_price + variant_adj
+
+    slab = db.query(DiscountSlab).filter(
         DiscountSlab.product_id == product.id,
-        DiscountSlab.min_quantity <= quantity
+        DiscountSlab.min_quantity <= quantity,
     ).order_by(DiscountSlab.min_quantity.desc()).first()
-    discount = slabs.discount_percentage if slabs else 0.0
-    final = base * (1 - discount / 100) * quantity
-    return final, discount
+
+    if slab:
+        if slab.price_per_unit is not None:
+            # Flat per-unit pricing (new model). Variant adjustment still applies.
+            unit_price = slab.price_per_unit + variant_adj
+            final = unit_price * quantity
+            return final, 0.0
+        discount = slab.discount_percentage or 0.0
+        final = base * (1 - discount / 100) * quantity
+        return final, discount
+
+    return base * quantity, 0.0
 
 
 @router.post("", response_model=OrderOut)
@@ -76,6 +117,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         items_to_create.append((item, unit_price, item_total, discount))
 
     order = Order(
+        order_number=_generate_order_number(db),
         user_id=current_user.id,
         total_amount=total,
         shipping_name=data.shipping_name,
@@ -112,6 +154,17 @@ def list_orders(db: Session = Depends(get_db), current_user=Depends(get_current_
     else:
         orders = db.query(Order).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
     return _enrich_orders(orders, db)
+
+
+@router.get("/by-number/{order_number}", response_model=OrderOut)
+def get_order_by_number(order_number: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Lookup an order by its public order_number (e.g. CB-A7K9M2P4)."""
+    order = db.query(Order).filter(Order.order_number == order_number.upper()).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if not current_user.is_admin and order.user_id != current_user.id:
+        raise HTTPException(403, "Access denied")
+    return _enrich_order(order, db)
 
 
 @router.get("/{order_id}", response_model=OrderOut)

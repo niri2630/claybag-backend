@@ -66,6 +66,10 @@ class DiscountSlab(Base):
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     min_quantity = Column(Integer, nullable=False)
-    discount_percentage = Column(Float, nullable=False)
+    # Legacy percentage-based discount (kept for backward compat with existing data)
+    discount_percentage = Column(Float, nullable=True, default=0.0)
+    # New: flat price-per-unit (INR). If set, overrides discount_percentage.
+    # Example: "above 24 pcs it is ₹340" → min_quantity=25, price_per_unit=340
+    price_per_unit = Column(Float, nullable=True)
 
     product = relationship("Product", back_populates="discount_slabs")

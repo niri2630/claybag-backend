@@ -54,6 +54,7 @@ class OrderStatusUpdate(BaseModel):
 
 class OrderOut(BaseModel):
     id: int
+    order_number: Optional[str] = None
     user_id: int
     status: OrderStatus
     total_amount: float
