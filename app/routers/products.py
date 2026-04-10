@@ -262,7 +262,9 @@ def update_discount_slab(product_id: int, slab_id: int, data: DiscountSlabUpdate
     slab = db.query(DiscountSlab).filter(DiscountSlab.id == slab_id, DiscountSlab.product_id == product_id).first()
     if not slab:
         raise HTTPException(404, "Discount slab not found")
-    for k, v in data.model_dump(exclude_none=True).items():
+    # Use exclude_unset so explicitly sent null values (like variant_id: null)
+    # are applied, while omitted fields are left unchanged.
+    for k, v in data.model_dump(exclude_unset=True).items():
         setattr(slab, k, v)
     db.commit()
     db.refresh(slab)
