@@ -21,6 +21,9 @@ class Product(Base):
     is_active = Column(Boolean, default=True)
     has_variants = Column(Boolean, default=False)  # sizes, colors, etc.
     is_featured = Column(Boolean, default=False)   # show in hot sellers on homepage
+    min_order_qty = Column(Integer, nullable=True)   # MOQ — null means no minimum (1 unit OK)
+    branding_info = Column(Text, nullable=True)       # Printing/branding methods (embroidery, screen print, etc.)
+    size_chart_url = Column(String, nullable=True)    # URL to size chart image (for apparel)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -65,6 +68,7 @@ class DiscountSlab(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    variant_id = Column(Integer, ForeignKey("product_variants.id", ondelete="SET NULL"), nullable=True)  # null = applies to all variants
     min_quantity = Column(Integer, nullable=False)
     # Legacy percentage-based discount (kept for backward compat with existing data)
     discount_percentage = Column(Float, nullable=True, default=0.0)
@@ -73,3 +77,4 @@ class DiscountSlab(Base):
     price_per_unit = Column(Float, nullable=True)
 
     product = relationship("Product", back_populates="discount_slabs")
+    variant = relationship("ProductVariant")

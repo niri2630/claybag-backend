@@ -188,6 +188,20 @@ def delete_product_image(product_id: int, image_id: int, db: Session = Depends(g
     return {"detail": "Deleted"}
 
 
+@router.put("/products/{product_id}/images/{image_id}/primary")
+def set_primary_image(product_id: int, image_id: int, db: Session = Depends(get_db), _=Depends(get_current_admin)):
+    """Set an image as the primary image for a product. Un-primaries all others."""
+    img = db.query(ProductImage).filter(ProductImage.id == image_id, ProductImage.product_id == product_id).first()
+    if not img:
+        raise HTTPException(404, "Image not found")
+    # Un-primary all images for this product
+    db.query(ProductImage).filter(ProductImage.product_id == product_id).update({"is_primary": False})
+    # Set this one as primary
+    img.is_primary = True
+    db.commit()
+    return {"detail": "Primary image updated"}
+
+
 @router.post("/categories/{category_id}/image")
 def upload_category_image(
     category_id: int,

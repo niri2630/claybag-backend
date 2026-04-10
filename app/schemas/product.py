@@ -43,6 +43,7 @@ class ProductVariantOut(BaseModel):
 
 
 class DiscountSlabCreate(BaseModel):
+    variant_id: Optional[int] = None  # null = applies to all variants
     min_quantity: int
     # Either price_per_unit (new, preferred) OR discount_percentage (legacy)
     price_per_unit: Optional[float] = None
@@ -50,6 +51,7 @@ class DiscountSlabCreate(BaseModel):
 
 
 class DiscountSlabUpdate(BaseModel):
+    variant_id: Optional[int] = None
     min_quantity: Optional[int] = None
     price_per_unit: Optional[float] = None
     discount_percentage: Optional[float] = None
@@ -57,6 +59,7 @@ class DiscountSlabUpdate(BaseModel):
 
 class DiscountSlabOut(BaseModel):
     id: int
+    variant_id: Optional[int] = None
     min_quantity: int
     price_per_unit: Optional[float] = None
     discount_percentage: Optional[float] = None
@@ -72,11 +75,14 @@ class ProductCreate(BaseModel):
     use_cases: Optional[str] = None
     materials: Optional[str] = None
     delivery_info: Optional[str] = None
+    branding_info: Optional[str] = None
     subcategory_id: int
     base_price: float
     is_active: bool = True
     has_variants: bool = False
     is_featured: bool = False
+    min_order_qty: Optional[int] = None  # null = no MOQ
+    size_chart_url: Optional[str] = None
 
 
 class ProductUpdate(BaseModel):
@@ -86,11 +92,14 @@ class ProductUpdate(BaseModel):
     use_cases: Optional[str] = None
     materials: Optional[str] = None
     delivery_info: Optional[str] = None
+    branding_info: Optional[str] = None
     subcategory_id: Optional[int] = None
     base_price: Optional[float] = None
     is_active: Optional[bool] = None
     has_variants: Optional[bool] = None
     is_featured: Optional[bool] = None
+    min_order_qty: Optional[int] = None
+    size_chart_url: Optional[str] = None
 
 
 class ProductOut(BaseModel):
@@ -102,11 +111,14 @@ class ProductOut(BaseModel):
     use_cases: Optional[str] = None
     materials: Optional[str] = None
     delivery_info: Optional[str] = None
+    branding_info: Optional[str] = None
     subcategory_id: int
     base_price: float
     is_active: bool = True
     has_variants: bool = False
     is_featured: bool = False
+    min_order_qty: Optional[int] = None
+    size_chart_url: Optional[str] = None
     variant_mode: str = "multi_qty"  # from parent category
     created_at: datetime
     images: List[ProductImageOut] = []

@@ -80,15 +80,28 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
     """
     variant_adj = variant.price_adjustment if variant else 0
     base = product.base_price + variant_adj
+    variant_id = variant.id if variant else None
 
-    slab = db.query(DiscountSlab).filter(
-        DiscountSlab.product_id == product.id,
-        DiscountSlab.min_quantity <= quantity,
-    ).order_by(DiscountSlab.min_quantity.desc()).first()
+    # Priority: variant-specific slab > product-wide slab
+    # 1. Try variant-specific slab first
+    slab = None
+    if variant_id:
+        slab = db.query(DiscountSlab).filter(
+            DiscountSlab.product_id == product.id,
+            DiscountSlab.variant_id == variant_id,
+            DiscountSlab.min_quantity <= quantity,
+        ).order_by(DiscountSlab.min_quantity.desc()).first()
+
+    # 2. Fall back to product-wide slab (variant_id IS NULL)
+    if not slab:
+        slab = db.query(DiscountSlab).filter(
+            DiscountSlab.product_id == product.id,
+            DiscountSlab.variant_id.is_(None),
+            DiscountSlab.min_quantity <= quantity,
+        ).order_by(DiscountSlab.min_quantity.desc()).first()
 
     if slab:
         if slab.price_per_unit is not None:
-            # Flat per-unit pricing (new model). Variant adjustment still applies.
             unit_price = slab.price_per_unit + variant_adj
             final = unit_price * quantity
             return final, 0.0
