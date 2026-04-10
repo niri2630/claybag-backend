@@ -20,3 +20,4 @@ class User(Base):
 
     orders = relationship("Order", back_populates="user")
     addresses = relationship("Address", back_populates="user", order_by="Address.is_default.desc()")
+    company_profile = relationship("CompanyProfile", back_populates="user", uselist=False)
