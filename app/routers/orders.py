@@ -92,13 +92,21 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
             DiscountSlab.min_quantity <= quantity,
         ).order_by(DiscountSlab.min_quantity.desc()).first()
 
-    # 2. Fall back to product-wide slab (variant_id IS NULL)
+    # 2. Fall back to product-wide slab ONLY if no variant-specific slabs
+    #    exist at all for this product. If the product uses per-variant slabs,
+    #    variants without their own slab get no discount.
     if not slab:
-        slab = db.query(DiscountSlab).filter(
+        has_any_variant_slabs = db.query(DiscountSlab).filter(
             DiscountSlab.product_id == product.id,
-            DiscountSlab.variant_id.is_(None),
-            DiscountSlab.min_quantity <= quantity,
-        ).order_by(DiscountSlab.min_quantity.desc()).first()
+            DiscountSlab.variant_id.isnot(None),
+        ).first() is not None
+
+        if not has_any_variant_slabs:
+            slab = db.query(DiscountSlab).filter(
+                DiscountSlab.product_id == product.id,
+                DiscountSlab.variant_id.is_(None),
+                DiscountSlab.min_quantity <= quantity,
+            ).order_by(DiscountSlab.min_quantity.desc()).first()
 
     if slab:
         if slab.price_per_unit is not None:
