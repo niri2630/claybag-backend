@@ -188,6 +188,18 @@ def delete_product_image(product_id: int, image_id: int, db: Session = Depends(g
     return {"detail": "Deleted"}
 
 
+@router.post("/size-chart/{product_id}")
+def upload_size_chart(product_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(get_current_admin)):
+    """Upload a size chart image for a product. Saves to S3/disk and updates product.size_chart_url."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(404, "Product not found")
+    url = save_uploaded_file(file, f"size-charts/{product_id}")
+    product.size_chart_url = url
+    db.commit()
+    return {"url": url}
+
+
 @router.put("/products/{product_id}/images/{image_id}/primary")
 def set_primary_image(product_id: int, image_id: int, db: Session = Depends(get_db), _=Depends(get_current_admin)):
     """Set an image as the primary image for a product. Un-primaries all others."""
