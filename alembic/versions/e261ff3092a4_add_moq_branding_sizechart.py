@@ -16,32 +16,29 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Safe: only add columns if they don't exist (production may already have them from hotfixes)
+    # Use raw SQL with IF EXISTS/IF NOT EXISTS to handle production state
+    # (some columns/constraints may already exist from manual hotfixes)
     conn = op.get_bind()
 
-    # Check if variant_id FK constraint needs cleanup (may have been added manually)
-    try:
-        op.drop_index('ix_product_images_variant_id', table_name='product_images')
-    except Exception:
-        pass  # index may not exist
+    # Clean up product_images variant FK (may have been added manually with different name)
+    conn.execute(sa.text("DROP INDEX IF EXISTS ix_product_images_variant_id"))
+    # Drop old named FK if it exists
+    conn.execute(sa.text("""
+        DO $$ BEGIN
+            ALTER TABLE product_images DROP CONSTRAINT IF EXISTS fk_product_images_variant;
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END $$;
+    """))
 
-    try:
-        op.drop_constraint('fk_product_images_variant', 'product_images', type_='foreignkey')
-    except Exception:
-        pass  # constraint may not exist or have a different name
+    # Ensure variant_id column exists on product_images (may already be there)
+    conn.execute(sa.text("""
+        ALTER TABLE product_images ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES product_variants(id);
+    """))
 
-    # Ensure the FK exists with proper naming
-    try:
-        op.create_foreign_key(None, 'product_images', 'product_variants', ['variant_id'], ['id'])
-    except Exception:
-        pass  # FK may already exist
-
-    # Add new product columns (safe: nullable, no default conflicts)
-    for col_name, col_type in [('min_order_qty', sa.Integer()), ('branding_info', sa.Text()), ('size_chart_url', sa.String())]:
-        try:
-            op.add_column('products', sa.Column(col_name, col_type, nullable=True))
-        except Exception:
-            pass  # column may already exist
+    # Add new product columns
+    conn.execute(sa.text("ALTER TABLE products ADD COLUMN IF NOT EXISTS min_order_qty INTEGER"))
+    conn.execute(sa.text("ALTER TABLE products ADD COLUMN IF NOT EXISTS branding_info TEXT"))
+    conn.execute(sa.text("ALTER TABLE products ADD COLUMN IF NOT EXISTS size_chart_url VARCHAR"))
 
 
 def downgrade() -> None:

@@ -16,16 +16,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    try:
-        op.add_column('discount_slabs', sa.Column('variant_id', sa.Integer(), nullable=True))
-    except Exception:
-        pass
-    try:
-        op.create_foreign_key(None, 'discount_slabs', 'product_variants', ['variant_id'], ['id'], ondelete='SET NULL')
-    except Exception:
-        pass
+    conn = op.get_bind()
+    conn.execute(sa.text("""
+        ALTER TABLE discount_slabs ADD COLUMN IF NOT EXISTS variant_id INTEGER
+        REFERENCES product_variants(id) ON DELETE SET NULL
+    """))
 
 
 def downgrade() -> None:
-    op.drop_constraint(None, 'discount_slabs', type_='foreignkey')
     op.drop_column('discount_slabs', 'variant_id')
