@@ -1,14 +1,14 @@
 """add company_profiles table
 
 Revision ID: g1a2b3c4d5e6
-Revises: f8d2c4e6b1a3
+Revises: 5bea022681c1
 Create Date: 2026-04-10 12:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "g1a2b3c4d5e6"
-down_revision = "f8d2c4e6b1a3"
+down_revision = "5bea022681c1"
 branch_labels = None
 depends_on = None
 
