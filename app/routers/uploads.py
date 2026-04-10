@@ -194,7 +194,41 @@ def upload_size_chart(product_id: int, file: UploadFile = File(...), db: Session
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(404, "Product not found")
-    url = save_uploaded_file(file, f"size-charts/{product_id}")
+
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(400, "Only JPEG, PNG, WEBP allowed")
+
+    data = file.file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(400, "File too large")
+
+    ext = (file.filename or "image").rsplit(".", 1)[-1].lower()
+    if ext not in {"jpg", "jpeg", "png", "webp"}:
+        ext = "jpg"
+    filename = f"size-chart-{product_id}-{uuid.uuid4().hex[:8]}.{ext}"
+
+    if _is_s3_enabled():
+        s3 = _get_s3_client()
+        key = f"size-charts/{filename}"
+        s3.put_object(
+            Bucket=settings.S3_BUCKET,
+            Key=key,
+            Body=data,
+            ContentType=file.content_type,
+            CacheControl="public, max-age=31536000, immutable",
+        )
+        url = f"{settings.S3_PUBLIC_URL.rstrip('/')}/{key}"
+    else:
+        path = os.path.join(settings.UPLOAD_DIR, filename)
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        url = f"/media/{filename}"
+
+    # Delete old chart from storage if exists
+    if product.size_chart_url:
+        delete_stored_file(product.size_chart_url)
+
     product.size_chart_url = url
     db.commit()
     return {"url": url}
