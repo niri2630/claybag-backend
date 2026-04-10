@@ -13,22 +13,21 @@ from app.core.security import get_current_user, get_current_admin
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-# Order number generation -- random, unguessable, non-sequential.
-# Format: CB-XXXXXXXX where X is crypto-random alphanum (uppercase letters + digits)
-# Excludes confusing characters (0/O, 1/I/L) for readability.
-_ORDER_NUMBER_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"  # 31 chars, ~39 bits entropy for 8 chars
+# Order number generation — random jumping numeric, non-sequential.
+# Looks natural: 4729, 18234, 7891, 52103, etc.
+# Range: 1000–99999 (5 digits max, ~90K possibilities).
+# Once we have 50K+ orders, range auto-expands to 6 digits.
 
-
-def _generate_order_number(db: Session, max_attempts: int = 10) -> str:
-    """Generate a unique random order number like 'CB-A7K9M2P4'."""
+def _generate_order_number(db: Session, max_attempts: int = 20) -> str:
+    """Generate a unique random order number like 'CB-4729' or 'CB-18234'.
+    Random jumping numbers — non-sequential, looks organic."""
     for _ in range(max_attempts):
-        suffix = "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(8))
-        candidate = f"CB-{suffix}"
+        num = secrets.randbelow(9900) + 100  # 100–9999
+        candidate = f"CB-{num}"
         if not db.query(Order).filter(Order.order_number == candidate).first():
             return candidate
-    # Extremely unlikely; fall back to longer suffix
-    suffix = "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(12))
-    return f"CB-{suffix}"
+    # Fallback: expand to 5 digits if 100-9999 is exhausted
+    return f"CB-{secrets.randbelow(90000) + 10000}"
 
 
 def _enrich_order(order: Order, db: Session) -> dict:

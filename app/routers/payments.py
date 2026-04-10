@@ -1,13 +1,57 @@
+import logging
+import threading
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.order import Order, OrderTracking, OrderStatus
+from app.models.user import User
+from app.models.product import Product, ProductVariant
 from app.core.security import get_current_user
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+
+def _send_confirmation_email(order: Order, db: Session):
+    """Send order confirmation email + PDF in a background thread (fire-and-forget)."""
+    try:
+        from app.core.email import send_order_confirmation
+
+        user = db.query(User).filter(User.id == order.user_id).first()
+        if not user or not user.email:
+            return
+
+        items_detail = []
+        for oi in order.items:
+            product = db.query(Product).filter(Product.id == oi.product_id).first()
+            variant_label = ""
+            if oi.variant_id:
+                variant = db.query(ProductVariant).filter(ProductVariant.id == oi.variant_id).first()
+                if variant:
+                    variant_label = f"{variant.variant_type}: {variant.variant_value}"
+            items_detail.append({
+                "product_name": product.name if product else f"Product #{oi.product_id}",
+                "variant_label": variant_label,
+                "quantity": oi.quantity,
+                "unit_price": oi.unit_price,
+                "total_price": oi.total_price,
+            })
+
+        # Run in background thread so response isn't delayed
+        thread = threading.Thread(
+            target=send_order_confirmation,
+            args=(order, user, items_detail),
+            daemon=True,
+        )
+        thread.start()
+
+    except Exception as e:
+        logger.error("Failed to queue confirmation email for order %s: %s", order.id, e)
 
 CF_BASE = (
     "https://sandbox.cashfree.com/pg"
@@ -139,6 +183,9 @@ def verify_payment(
         db.commit()
         db.refresh(order)
 
+        # Send order confirmation email (async-safe, never raises)
+        _send_confirmation_email(order, db)
+
     return {
         "order_id": order.id,
         "payment_status": order.payment_status or "PENDING",
@@ -169,5 +216,9 @@ async def cashfree_webhook(request: Request, db: Session = Depends(get_db)):
                     note="Payment confirmed via Cashfree webhook",
                 ))
                 db.commit()
+                db.refresh(order)
+
+                # Send order confirmation email
+                _send_confirmation_email(order, db)
 
     return {"status": "ok"}

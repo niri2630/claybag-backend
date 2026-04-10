@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     CASHFREE_ENV: str = "sandbox"  # "sandbox" or "production"
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Email / SMTP
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""  # display "From" email (defaults to SMTP_USER)
+    SMTP_TLS: bool = True
+
     @property
     def origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
