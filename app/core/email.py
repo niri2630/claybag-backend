@@ -53,7 +53,8 @@ def send_email(
             if settings.SMTP_TLS:
                 server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_USER, [to_email], msg.as_string())
+            sender = settings.SMTP_FROM or settings.SMTP_USER
+            server.sendmail(sender, [to_email], msg.as_string())
 
         logger.info("Email sent to %s: %s", to_email, subject)
         return True
