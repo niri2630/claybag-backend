@@ -58,6 +58,8 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if verify_password(data.new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="New password cannot be the same as your current password")
     user.password_hash = hash_password(data.new_password)
     db.commit()
     return {"message": "Password reset successful"}
