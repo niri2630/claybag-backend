@@ -13,6 +13,27 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
+
+# Register a Unicode-capable font for ₹ symbol
+# Try DejaVu (commonly available on Linux/Docker), fallback to using HTML entity
+_font_registered = False
+for font_path in [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+]:
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont("UniFont", font_path))
+        pdfmetrics.registerFont(TTFont("UniFont-Bold", font_path.replace("Sans.ttf", "Sans-Bold.ttf").replace("Regular", "Bold")))
+        _font_registered = True
+        break
+
+RUPEE = "₹" if _font_registered else "Rs."
+FONT_NAME = "UniFont" if _font_registered else "Helvetica"
+FONT_NAME_BOLD = "UniFont-Bold" if _font_registered else "Helvetica-Bold"
 
 
 YELLOW = colors.HexColor("#fdc003")
@@ -48,7 +69,7 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
     styles.add(ParagraphStyle(
         "BrandTitle",
         parent=styles["Heading1"],
-        fontName="Helvetica-Bold",
+        fontName=FONT_NAME_BOLD,
         fontSize=22,
         textColor=BLACK,
         spaceAfter=4,
@@ -56,7 +77,7 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
     styles.add(ParagraphStyle(
         "SectionHead",
         parent=styles["Heading3"],
-        fontName="Helvetica-Bold",
+        fontName=FONT_NAME_BOLD,
         fontSize=10,
         textColor=GRAY,
         spaceAfter=6,
@@ -65,7 +86,7 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
     styles.add(ParagraphStyle(
         "CellText",
         parent=styles["Normal"],
-        fontName="Helvetica",
+        fontName=FONT_NAME,
         fontSize=9,
         textColor=BLACK,
         leading=13,
@@ -73,7 +94,7 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
     styles.add(ParagraphStyle(
         "CellBold",
         parent=styles["Normal"],
-        fontName="Helvetica-Bold",
+        fontName=FONT_NAME_BOLD,
         fontSize=9,
         textColor=BLACK,
         leading=13,
@@ -81,7 +102,7 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
     styles.add(ParagraphStyle(
         "SmallGray",
         parent=styles["Normal"],
-        fontName="Helvetica",
+        fontName=FONT_NAME,
         fontSize=8,
         textColor=GRAY,
         leading=11,
@@ -89,7 +110,7 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
     styles.add(ParagraphStyle(
         "FooterText",
         parent=styles["Normal"],
-        fontName="Helvetica",
+        fontName=FONT_NAME,
         fontSize=7,
         textColor=GRAY,
         alignment=TA_CENTER,
@@ -105,12 +126,12 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
         [
             Paragraph("CLAY<font color='#fdc003'>BAG</font>", styles["BrandTitle"]),
             "",
-            Paragraph(f"<b>Order Confirmation</b>", ParagraphStyle("", fontName="Helvetica-Bold", fontSize=14, textColor=BLACK, alignment=TA_RIGHT)),
+            Paragraph(f"<b>Order Confirmation</b>", ParagraphStyle("", fontName=FONT_NAME_BOLD, fontSize=14, textColor=BLACK, alignment=TA_RIGHT)),
         ],
         [
             Paragraph("Premium Branded Merchandise", styles["SmallGray"]),
             "",
-            Paragraph(f"Order #{order_num}<br/>Date: {order_date}", ParagraphStyle("", fontName="Helvetica", fontSize=9, textColor=GRAY, alignment=TA_RIGHT, leading=13)),
+            Paragraph(f"Order #{order_num}<br/>Date: {order_date}", ParagraphStyle("", fontName=FONT_NAME, fontSize=9, textColor=GRAY, alignment=TA_RIGHT, leading=13)),
         ],
     ]
     header_table = Table(header_data, colWidths=[200, 100, 200])
@@ -195,8 +216,8 @@ CIN: U74999KA2018PTC112752"""
             Paragraph(str(idx), styles["CellText"]),
             Paragraph(label, styles["CellText"]),
             Paragraph(str(item["quantity"]), styles["CellText"]),
-            Paragraph(f'₹{item["unit_price"]:,.2f}', styles["CellText"]),
-            Paragraph(f'₹{item["total_price"]:,.2f}', styles["CellText"]),
+            Paragraph(f'{RUPEE}{item["unit_price"]:,.2f}', styles["CellText"]),
+            Paragraph(f'{RUPEE}{item["total_price"]:,.2f}', styles["CellText"]),
         ])
 
     items_table = Table(item_rows, colWidths=[30, 250, 40, 80, 80])
@@ -219,10 +240,10 @@ CIN: U74999KA2018PTC112752"""
 
     # ── Totals ──────────────────────────────────────────────────
     totals_data = [
-        ["Subtotal", f"₹{order.total_amount:,.2f}"],
+        ["Subtotal", f"{RUPEE}{order.total_amount:,.2f}"],
         ["Shipping", "FREE"],
         ["", ""],
-        ["Order Total", f"₹{order.total_amount:,.2f}"],
+        ["Order Total", f"{RUPEE}{order.total_amount:,.2f}"],
     ]
     totals_table = Table(totals_data, colWidths=[380, 100])
     totals_table.setStyle(TableStyle([
@@ -244,10 +265,10 @@ CIN: U74999KA2018PTC112752"""
     # ── Footer ──────────────────────────────────────────────────
     elements.append(Paragraph(
         "Thank you for choosing ClayBag! Your order is being processed and will be shipped shortly.",
-        ParagraphStyle("", fontName="Helvetica", fontSize=10, textColor=BLACK, alignment=TA_CENTER, spaceAfter=8),
+        ParagraphStyle("", fontName=FONT_NAME, fontSize=10, textColor=BLACK, alignment=TA_CENTER, spaceAfter=8),
     ))
     elements.append(Paragraph(
-        "For support, reach out to us at support@claybag.com or call +91 98864 13339",
+        "For support, reach out to us at talk2us@claybag.com or call +91 98864 13339",
         styles["FooterText"],
     ))
     elements.append(Spacer(1, 4 * mm))

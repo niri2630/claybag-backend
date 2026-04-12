@@ -115,7 +115,7 @@ def send_order_confirmation(order, user, items_detail: list[dict]) -> bool:
             <!-- Body -->
             <div style="padding:32px 24px;">
                 <h1 style="font-size:24px;color:#1b1b1b;margin:0 0 8px 0;">
-                    Thank you for your order! &#127881;
+                    Thank you for your order!
                 </h1>
                 <p style="color:#666;font-size:14px;line-height:1.6;margin:0 0 24px 0;">
                     Hey {user.name.split(' ')[0]}, your order <strong>#{order_num}</strong> has been confirmed
@@ -183,7 +183,7 @@ def send_order_confirmation(order, user, items_detail: list[dict]) -> bool:
             <!-- Footer -->
             <div style="background:#1b1b1b;padding:24px;text-align:center;">
                 <div style="color:#888;font-size:12px;line-height:1.8;">
-                    Need help? Email us at <a href="mailto:support@claybag.com" style="color:#fdc003;">support@claybag.com</a><br/>
+                    Need help? Email us at <a href="mailto:talk2us@claybag.com" style="color:#fdc003;">talk2us@claybag.com</a><br/>
                     or call <a href="tel:+919886413339" style="color:#fdc003;">+91 98864 13339</a>
                 </div>
                 <div style="margin-top:16px;color:#555;font-size:10px;letter-spacing:2px;text-transform:uppercase;">
