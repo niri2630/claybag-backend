@@ -3,8 +3,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, LoginRequest, Token, UserOut
+from app.schemas.user import UserCreate, LoginRequest, Token, UserOut, ForgotPasswordRequest, ResetPasswordRequest
 from app.core.security import hash_password, verify_password, create_access_token
+from app.core.otp_store import generate_otp, verify_otp
+from app.core.email import send_otp_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,6 +36,31 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Account disabled")
     token = create_access_token({"sub": str(user.id)})
     return {"access_token": token, "token_type": "bearer", "user": user}
+
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # Always return same message to prevent email enumeration
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        return {"message": "If an account exists with this email, an OTP has been sent."}
+    otp = generate_otp(data.email)
+    if otp is None:
+        raise HTTPException(status_code=429, detail="Please wait before requesting another OTP.")
+    send_otp_email(data.email, otp)
+    return {"message": "If an account exists with this email, an OTP has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    if not verify_otp(data.email, data.otp):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    return {"message": "Password reset successful"}
 
 
 @router.post("/admin-login", response_model=Token)

@@ -100,6 +100,14 @@ def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
         leading=13,
     ))
     styles.add(ParagraphStyle(
+        "CellHeader",
+        parent=styles["Normal"],
+        fontName=FONT_NAME_BOLD,
+        fontSize=9,
+        textColor=colors.white,
+        leading=13,
+    ))
+    styles.add(ParagraphStyle(
         "SmallGray",
         parent=styles["Normal"],
         fontName=FONT_NAME,
@@ -200,11 +208,11 @@ CIN: U74999KA2018PTC112752"""
     elements.append(Paragraph("Order Items", styles["SectionHead"]))
 
     item_header = [
-        Paragraph("<b>#</b>", styles["CellBold"]),
-        Paragraph("<b>Product</b>", styles["CellBold"]),
-        Paragraph("<b>Qty</b>", styles["CellBold"]),
-        Paragraph("<b>Unit Price</b>", styles["CellBold"]),
-        Paragraph("<b>Total</b>", styles["CellBold"]),
+        Paragraph("<b>#</b>", styles["CellHeader"]),
+        Paragraph("<b>Product</b>", styles["CellHeader"]),
+        Paragraph("<b>Qty</b>", styles["CellHeader"]),
+        Paragraph("<b>Unit Price</b>", styles["CellHeader"]),
+        Paragraph("<b>Total</b>", styles["CellHeader"]),
     ]
     item_rows = [item_header]
 
@@ -239,22 +247,19 @@ CIN: U74999KA2018PTC112752"""
     elements.append(Spacer(1, 6 * mm))
 
     # ── Totals ──────────────────────────────────────────────────
+    total_label_style = ParagraphStyle("", fontName=FONT_NAME, fontSize=9, textColor=GRAY, alignment=TA_RIGHT)
+    total_value_style = ParagraphStyle("", fontName=FONT_NAME, fontSize=9, textColor=GRAY, alignment=TA_RIGHT)
+    total_bold_label = ParagraphStyle("", fontName=FONT_NAME_BOLD, fontSize=12, textColor=BLACK, alignment=TA_RIGHT)
+    total_bold_value = ParagraphStyle("", fontName=FONT_NAME_BOLD, fontSize=12, textColor=BLACK, alignment=TA_RIGHT)
+
     totals_data = [
-        ["Subtotal", f"{RUPEE}{order.total_amount:,.2f}"],
-        ["Shipping", "FREE"],
+        [Paragraph("Subtotal", total_label_style), Paragraph(f"{RUPEE}{order.total_amount:,.2f}", total_value_style)],
+        [Paragraph("Shipping", total_label_style), Paragraph("FREE", total_value_style)],
         ["", ""],
-        ["Order Total", f"{RUPEE}{order.total_amount:,.2f}"],
+        [Paragraph("Order Total", total_bold_label), Paragraph(f"{RUPEE}{order.total_amount:,.2f}", total_bold_value)],
     ]
     totals_table = Table(totals_data, colWidths=[380, 100])
     totals_table.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("TEXTCOLOR", (0, 0), (-1, -1), GRAY),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, -1), (-1, -1), 12),
-        ("TEXTCOLOR", (0, -1), (-1, -1), BLACK),
         ("LINEABOVE", (0, -1), (-1, -1), 1.5, YELLOW),
         ("TOPPADDING", (0, -1), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -2), 4),

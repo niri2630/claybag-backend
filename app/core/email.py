@@ -64,6 +64,52 @@ def send_email(
         return False
 
 
+def send_otp_email(to_email: str, otp: str) -> bool:
+    """Send a password reset OTP email."""
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+    <body style="margin:0;padding:0;background:#f6f4ef;font-family:Helvetica,Arial,sans-serif;">
+        <div style="max-width:600px;margin:0 auto;background:#ffffff;">
+            <div style="background:#1b1b1b;padding:32px 24px;text-align:center;">
+                <div style="font-size:28px;font-weight:bold;color:#ffffff;letter-spacing:2px;">
+                    CLAY<span style="color:#fdc003;">BAG</span>
+                </div>
+                <div style="color:#888;font-size:11px;letter-spacing:3px;margin-top:4px;text-transform:uppercase;">
+                    Small Batch. Big Brand.
+                </div>
+            </div>
+            <div style="height:4px;background:#fdc003;"></div>
+            <div style="padding:40px 24px;text-align:center;">
+                <h1 style="font-size:22px;color:#1b1b1b;margin:0 0 12px 0;">Password Reset</h1>
+                <p style="color:#666;font-size:14px;line-height:1.6;margin:0 0 32px 0;">
+                    Use the code below to reset your password. This code expires in 10 minutes.
+                </p>
+                <div style="background:#f6f4ef;border:2px dashed #fdc003;border-radius:8px;padding:24px;margin-bottom:32px;">
+                    <div style="font-size:36px;font-weight:bold;letter-spacing:12px;color:#1b1b1b;font-family:monospace;">
+                        {otp}
+                    </div>
+                </div>
+                <p style="color:#888;font-size:12px;line-height:1.6;">
+                    If you didn't request this, you can safely ignore this email.
+                </p>
+            </div>
+            <div style="background:#1b1b1b;padding:24px;text-align:center;">
+                <div style="color:#888;font-size:12px;line-height:1.8;">
+                    Need help? Email us at <a href="mailto:talk2us@claybag.com" style="color:#fdc003;">talk2us@claybag.com</a>
+                </div>
+                <div style="margin-top:16px;color:#555;font-size:10px;letter-spacing:2px;text-transform:uppercase;">
+                    ClayBag &mdash; Building Brands Since 2024
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return send_email(to_email=to_email, subject="Password Reset OTP — ClayBag", html_body=html_body)
+
+
 def send_order_confirmation(order, user, items_detail: list[dict]) -> bool:
     """
     Send order confirmation email with PDF attachment.
