@@ -80,6 +80,7 @@ class ProductCreate(BaseModel):
     branding_methods: Optional[List[str]] = None
     subcategory_id: int
     base_price: float
+    compare_price: Optional[float] = None  # Original/MRP price (strikethrough)
     is_active: bool = True
     has_variants: bool = False
     is_featured: bool = False
@@ -98,6 +99,7 @@ class ProductUpdate(BaseModel):
     branding_methods: Optional[List[str]] = None
     subcategory_id: Optional[int] = None
     base_price: Optional[float] = None
+    compare_price: Optional[float] = None
     is_active: Optional[bool] = None
     has_variants: Optional[bool] = None
     is_featured: Optional[bool] = None
@@ -118,6 +120,7 @@ class ProductOut(BaseModel):
     branding_methods: Optional[List[str]] = None
     subcategory_id: int
     base_price: float
+    compare_price: Optional[float] = None
     is_active: bool = True
     has_variants: bool = False
     is_featured: bool = False

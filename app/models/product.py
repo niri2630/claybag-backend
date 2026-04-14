@@ -18,6 +18,7 @@ class Product(Base):
     delivery_info = Column(Text, nullable=True)    # Custom delivery notes
     subcategory_id = Column(Integer, ForeignKey("subcategories.id"), nullable=False)
     base_price = Column(Float, nullable=False)
+    compare_price = Column(Float, nullable=True)  # Original/MRP price shown as strikethrough (like Amazon)
     is_active = Column(Boolean, default=True)
     has_variants = Column(Boolean, default=False)  # sizes, colors, etc.
     is_featured = Column(Boolean, default=False)   # show in hot sellers on homepage
