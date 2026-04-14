@@ -1,4 +1,5 @@
 import re
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -14,6 +15,29 @@ from app.schemas.product import (
 from app.core.security import get_current_admin
 
 router = APIRouter(prefix="/products", tags=["products"])
+
+# All available branding methods
+ALL_BRANDING_METHODS = [
+    "Embroidery", "Screen Printing", "Sublimation Print",
+    "Digital Printing", "Embossing", "UV Printing",
+    "UV DTF Printing", "Laser Engraving", "Vinyl Heat Press",
+]
+
+# Default branding methods by category name (case-insensitive match)
+DEFAULT_BRANDING_BY_CATEGORY = {
+    "apparel": ["Embroidery", "Screen Printing", "Sublimation Print", "Vinyl Heat Press"],
+    "t-shirts": ["Embroidery", "Screen Printing", "Sublimation Print", "Vinyl Heat Press"],
+    "clothing": ["Embroidery", "Screen Printing", "Sublimation Print", "Vinyl Heat Press"],
+    "drinkware": ["UV Printing", "Sublimation Print", "Laser Engraving"],
+    "bottles": ["UV Printing", "Sublimation Print", "Laser Engraving"],
+    "mugs": ["UV Printing", "Sublimation Print", "Laser Engraving"],
+    "bags": ["Screen Printing", "Embroidery", "Digital Printing"],
+    "stationery": ["UV Printing", "Screen Printing", "Digital Printing"],
+    "tech": ["UV Printing", "Laser Engraving", "UV DTF Printing"],
+    "electronics": ["UV Printing", "Laser Engraving", "UV DTF Printing"],
+    "awards": ["Laser Engraving", "UV Printing", "Embossing"],
+    "lanyards": ["Screen Printing", "Sublimation Print", "Digital Printing"],
+}
 
 
 def _slugify(text: str) -> str:
@@ -62,9 +86,15 @@ def _get_variant_mode(p: Product, db: Session) -> str:
 
 
 def _enrich_product(p: Product, db: Session) -> dict:
-    """Add variant_mode to the response based on product's variant types."""
+    """Add variant_mode and deserialize branding_methods."""
     data = ProductOut.model_validate(p).model_dump()
     data["variant_mode"] = _get_variant_mode(p, db)
+    # Deserialize branding_methods from JSON string
+    if p.branding_methods:
+        try:
+            data["branding_methods"] = json.loads(p.branding_methods)
+        except (json.JSONDecodeError, TypeError):
+            data["branding_methods"] = None
     return data
 
 
@@ -174,6 +204,22 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=ProductOut)
 def create_product(data: ProductCreate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
     payload = data.model_dump()
+    # Serialize branding_methods list to JSON string
+    if payload.get("branding_methods") is not None:
+        payload["branding_methods"] = json.dumps(payload["branding_methods"])
+    else:
+        # Auto-populate branding methods based on category
+        sub = db.query(SubCategory).filter(SubCategory.id == payload["subcategory_id"]).first()
+        if sub:
+            cat = db.query(Category).filter(Category.id == sub.category_id).first()
+            if cat:
+                cat_key = cat.name.lower().strip()
+                defaults = DEFAULT_BRANDING_BY_CATEGORY.get(cat_key, DEFAULT_BRANDING_BY_CATEGORY.get("default", ALL_BRANDING_METHODS[:3]))
+                # Also check subcategory name
+                sub_key = sub.name.lower().strip()
+                if sub_key in DEFAULT_BRANDING_BY_CATEGORY:
+                    defaults = DEFAULT_BRANDING_BY_CATEGORY[sub_key]
+                payload["branding_methods"] = json.dumps(defaults)
     p = Product(**payload)
     p.slug = _generate_unique_slug(db, payload["name"])
     db.add(p)
@@ -188,6 +234,9 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
     if not p:
         raise HTTPException(404, "Product not found")
     update = data.model_dump(exclude_none=True)
+    # Serialize branding_methods list to JSON string
+    if "branding_methods" in update and isinstance(update["branding_methods"], list):
+        update["branding_methods"] = json.dumps(update["branding_methods"])
     name_changed = "name" in update and update["name"] != p.name
     for k, v in update.items():
         setattr(p, k, v)
@@ -204,6 +253,13 @@ def delete_product(product_id: int, db: Session = Depends(get_db), _=Depends(get
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(404, "Product not found")
+    # Check if product has associated orders — if so, soft-delete instead
+    from app.models.order import OrderItem
+    has_orders = db.query(OrderItem).filter(OrderItem.product_id == product_id).first()
+    if has_orders:
+        p.is_active = False
+        db.commit()
+        return {"detail": "Product has existing orders and was deactivated instead of deleted."}
     db.delete(p)
     db.commit()
     return {"detail": "Deleted"}

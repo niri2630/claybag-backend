@@ -2,7 +2,7 @@ import secrets
 import string
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.database import get_db
 from app.models.order import Order, OrderItem, OrderTracking, OrderStatus
@@ -43,7 +43,7 @@ def _enrich_order(order: Order, db: Session) -> dict:
     variants = {v.id: v for v in db.query(ProductVariant).filter(ProductVariant.id.in_(variant_ids)).all()} if variant_ids else {}
 
     # Primary image per product
-    images: dict[int, str] = {}
+    images: Dict[int, str] = {}
     if product_ids:
         rows = db.query(ProductImage).filter(ProductImage.product_id.in_(product_ids)).order_by(ProductImage.is_primary.desc(), ProductImage.sort_order.asc()).all()
         for img in rows:
@@ -227,3 +227,14 @@ def cancel_order(order_id: int, db: Session = Depends(get_db), current_user=Depe
     db.commit()
     db.refresh(order)
     return _enrich_order(order, db)
+
+
+@router.delete("/{order_id}")
+def delete_order(order_id: int, db: Session = Depends(get_db), _=Depends(get_current_admin)):
+    """Admin: permanently delete an order and all its items/tracking."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    db.delete(order)
+    db.commit()
+    return {"detail": "Order deleted"}

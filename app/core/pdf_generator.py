@@ -4,6 +4,7 @@ existing Logosouk invoice but branded for ClayBag, without the Invoice No. field
 """
 import io
 from datetime import datetime
+from typing import List
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -42,7 +43,7 @@ GRAY = colors.HexColor("#666666")
 LIGHT_GRAY = colors.HexColor("#f4f2f0")
 
 
-def generate_order_pdf(order, user, items_detail: list[dict]) -> bytes:
+def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
     """
     Generate a PDF order confirmation and return it as bytes.
 

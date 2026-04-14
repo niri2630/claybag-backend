@@ -7,7 +7,7 @@ import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
-from typing import Optional
+from typing import Optional, List
 
 from app.core.config import settings
 
@@ -110,7 +110,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     return send_email(to_email=to_email, subject="Password Reset OTP — ClayBag", html_body=html_body)
 
 
-def send_order_confirmation(order, user, items_detail: list[dict]) -> bool:
+def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
     """
     Send order confirmation email with PDF attachment.
     Called after payment is confirmed.

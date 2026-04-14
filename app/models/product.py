@@ -23,6 +23,7 @@ class Product(Base):
     is_featured = Column(Boolean, default=False)   # show in hot sellers on homepage
     min_order_qty = Column(Integer, nullable=True)   # MOQ — null means no minimum (1 unit OK)
     branding_info = Column(Text, nullable=True)       # Printing/branding methods (embroidery, screen print, etc.)
+    branding_methods = Column(Text, nullable=True)    # JSON array of branding method tags
     size_chart_url = Column(String, nullable=True)    # URL to size chart image (for apparel)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

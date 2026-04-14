@@ -1,8 +1,10 @@
 import os
+import io
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+from PIL import Image
 
 from app.database import get_db
 from app.models.product import Product, ProductImage
@@ -14,6 +16,7 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB — allows high-res product photography
+PRODUCT_IMAGE_SIZE = (500, 500)  # Target size for product images
 
 
 def _is_s3_enabled() -> bool:
@@ -25,7 +28,36 @@ def _get_s3_client():
     return boto3.client("s3", region_name=settings.S3_REGION)
 
 
-def save_file(file: UploadFile) -> str:
+def _resize_to_square(data: bytes, size: tuple = PRODUCT_IMAGE_SIZE) -> Tuple[bytes, str]:
+    """Resize image to a square (e.g. 500x500) with high quality.
+    Crops to center square first, then resizes. Returns (bytes, content_type)."""
+    img = Image.open(io.BytesIO(data))
+
+    # Convert RGBA/P to RGB for JPEG compatibility
+    if img.mode in ("RGBA", "P"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "P":
+            img = img.convert("RGBA")
+        bg.paste(img, mask=img.split()[3] if img.mode == "RGBA" else None)
+        img = bg
+
+    # Center-crop to square
+    w, h = img.size
+    side = min(w, h)
+    left = (w - side) // 2
+    top = (h - side) // 2
+    img = img.crop((left, top, left + side, top + side))
+
+    # Resize to target using high-quality Lanczos filter
+    img = img.resize(size, Image.LANCZOS)
+
+    # Save as JPEG with high quality (95) to preserve detail
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95, optimize=True)
+    return buf.getvalue(), "image/jpeg"
+
+
+def save_file(file: UploadFile, resize: bool = True) -> str:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(400, "Only JPEG, PNG, WEBP allowed")
 
@@ -34,9 +66,24 @@ def save_file(file: UploadFile) -> str:
     if len(data) > MAX_FILE_SIZE:
         raise HTTPException(400, f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB")
 
-    ext = (file.filename or "image").rsplit(".", 1)[-1].lower()
-    if ext not in {"jpg", "jpeg", "png", "webp"}:
-        ext = "jpg"
+    content_type = file.content_type
+    ext = "jpg"
+
+    # Resize product images to 500x500 square
+    if resize:
+        try:
+            data, content_type = _resize_to_square(data)
+            ext = "jpg"
+        except Exception:
+            # If resize fails, upload original
+            ext = (file.filename or "image").rsplit(".", 1)[-1].lower()
+            if ext not in {"jpg", "jpeg", "png", "webp"}:
+                ext = "jpg"
+    else:
+        ext = (file.filename or "image").rsplit(".", 1)[-1].lower()
+        if ext not in {"jpg", "jpeg", "png", "webp"}:
+            ext = "jpg"
+
     filename = f"{uuid.uuid4()}.{ext}"
 
     if _is_s3_enabled():
@@ -48,7 +95,7 @@ def save_file(file: UploadFile) -> str:
                 Bucket=settings.S3_BUCKET,
                 Key=key,
                 Body=data,
-                ContentType=file.content_type,
+                ContentType=content_type,
                 CacheControl="public, max-age=31536000, immutable",
             )
         except Exception as e:
@@ -151,7 +198,7 @@ def upload_product_images_batch(
         ProductImage.is_primary == True
     ).first() is not None
 
-    saved: list[ProductImage] = []
+    saved: List[ProductImage] = []
     for idx, file in enumerate(files):
         try:
             image_url = save_file(file)

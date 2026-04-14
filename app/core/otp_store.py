@@ -5,8 +5,9 @@ Sufficient for single-instance ECS; upgrade to Redis if scaling horizontally.
 import secrets
 import time
 import threading
+from typing import Dict, Optional
 
-_store: dict[str, dict] = {}  # {email: {"otp": str, "expires_at": float, "attempts": int}}
+_store: Dict[str, dict] = {}  # {email: {"otp": str, "expires_at": float, "attempts": int}}
 _lock = threading.Lock()
 
 OTP_EXPIRY_SECONDS = 600  # 10 minutes
@@ -14,7 +15,7 @@ MAX_ATTEMPTS = 5  # lock out after 5 wrong guesses
 MIN_RESEND_SECONDS = 60  # prevent spamming OTP requests
 
 
-def generate_otp(email: str) -> str | None:
+def generate_otp(email: str) -> Optional[str]:
     """Generate a 6-digit OTP. Returns None if called too soon (rate limit)."""
     key = email.lower()
     otp = "".join(str(secrets.randbelow(10)) for _ in range(6))

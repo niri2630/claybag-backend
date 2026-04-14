@@ -76,6 +76,7 @@ class ProductCreate(BaseModel):
     materials: Optional[str] = None
     delivery_info: Optional[str] = None
     branding_info: Optional[str] = None
+    branding_methods: Optional[List[str]] = None
     subcategory_id: int
     base_price: float
     is_active: bool = True
@@ -93,6 +94,7 @@ class ProductUpdate(BaseModel):
     materials: Optional[str] = None
     delivery_info: Optional[str] = None
     branding_info: Optional[str] = None
+    branding_methods: Optional[List[str]] = None
     subcategory_id: Optional[int] = None
     base_price: Optional[float] = None
     is_active: Optional[bool] = None
@@ -112,6 +114,7 @@ class ProductOut(BaseModel):
     materials: Optional[str] = None
     delivery_info: Optional[str] = None
     branding_info: Optional[str] = None
+    branding_methods: Optional[List[str]] = None
     subcategory_id: int
     base_price: float
     is_active: bool = True

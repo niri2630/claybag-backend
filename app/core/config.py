@@ -1,3 +1,4 @@
+from typing import List
 from pydantic_settings import BaseSettings
 
 
@@ -29,7 +30,7 @@ class Settings(BaseSettings):
     SMTP_TLS: bool = True
 
     @property
-    def origins(self) -> list[str]:
+    def origins(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
 
     class Config:
