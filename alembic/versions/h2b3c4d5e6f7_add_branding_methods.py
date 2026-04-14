@@ -14,7 +14,17 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("products", sa.Column("branding_methods", sa.Text(), nullable=True))
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'products' AND column_name = 'branding_methods'
+            ) THEN
+                ALTER TABLE products ADD COLUMN branding_methods TEXT;
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:

@@ -14,19 +14,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "company_profiles",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, unique=True, index=True),
-        sa.Column("company_name", sa.String(), nullable=False),
-        sa.Column("business_type", sa.String(), nullable=False),
-        sa.Column("gst_number", sa.String(), nullable=True),
-        sa.Column("registered_address", sa.Text(), nullable=True),
-        sa.Column("contact_person", sa.String(), nullable=True),
-        sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
-    )
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS company_profiles (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+            company_name VARCHAR NOT NULL,
+            business_type VARCHAR NOT NULL,
+            gst_number VARCHAR,
+            registered_address TEXT,
+            contact_person VARCHAR,
+            description TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_company_profiles_user_id ON company_profiles (user_id)")
 
 
 def downgrade() -> None:

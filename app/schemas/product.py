@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import Optional, List
+import json
 
 
 class ProductImageOut(BaseModel):
@@ -127,6 +128,18 @@ class ProductOut(BaseModel):
     images: List[ProductImageOut] = []
     variants: List[ProductVariantOut] = []
     discount_slabs: List[DiscountSlabOut] = []
+
+    @field_validator("branding_methods", mode="before")
+    @classmethod
+    def parse_branding_methods(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return v
 
     class Config:
         from_attributes = True
