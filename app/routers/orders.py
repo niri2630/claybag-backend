@@ -152,28 +152,21 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
                 total = total - referral_discount
                 referral.discount_used = True
 
-    # Handle Clay Coins redemption
+    # Validate Clay Coins (deduction happens after payment confirmation)
     coins_applied = 0.0
     if data.coins_applied and data.coins_applied > 0:
-        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).with_for_update().first()
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
         if not wallet or wallet.balance < data.coins_applied:
             raise HTTPException(400, "Insufficient Clay Coins balance")
-        if data.coins_applied > total:
-            raise HTTPException(400, "Cannot apply more coins than order total")
-        coins_applied = data.coins_applied
-        wallet.balance -= coins_applied
-        db.add(WalletTransaction(
-            wallet_id=wallet.id,
-            amount=coins_applied,
-            type="DEBIT",
-            source="REDEMPTION",
-            description=f"Applied {coins_applied} Clay Coins at checkout",
-        ))
+        max_coins = total - 1.0
+        if max_coins < 0:
+            max_coins = 0
+        coins_applied = min(data.coins_applied, max_coins)
 
     order = Order(
         order_number=_generate_order_number(db),
         user_id=current_user.id,
-        total_amount=total - coins_applied,
+        total_amount=max(round(total - coins_applied, 2), 1.0),
         coins_applied=coins_applied,
         referral_discount=referral_discount,
         shipping_name=data.shipping_name,

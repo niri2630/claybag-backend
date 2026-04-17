@@ -53,6 +53,29 @@ def _send_confirmation_email(order: Order, db: Session):
     except Exception as e:
         logger.error("Failed to queue confirmation email for order %s: %s", order.id, e)
 
+def _deduct_coins_after_payment(order: Order, db: Session):
+    """Deduct Clay Coins from wallet after payment is confirmed."""
+    if not order.coins_applied or order.coins_applied <= 0:
+        return
+    try:
+        from app.models.wallet import Wallet, WalletTransaction
+        wallet = db.query(Wallet).filter(Wallet.user_id == order.user_id).with_for_update().first()
+        if not wallet:
+            return
+        wallet.balance -= order.coins_applied
+        db.add(WalletTransaction(
+            wallet_id=wallet.id,
+            amount=order.coins_applied,
+            type="DEBIT",
+            source="REDEMPTION",
+            description=f"Applied {order.coins_applied} Clay Coins (Order #{order.order_number})",
+            reference_id=str(order.id),
+        ))
+        db.commit()
+    except Exception as e:
+        logger.error("Failed to deduct coins for order %s: %s", order.id, e)
+
+
 CF_BASE = (
     "https://sandbox.cashfree.com/pg"
     if settings.CASHFREE_ENV == "sandbox"
@@ -183,6 +206,9 @@ def verify_payment(
         db.commit()
         db.refresh(order)
 
+        # Deduct Clay Coins now that payment is confirmed
+        _deduct_coins_after_payment(order, db)
+
         # Process referral rewards (credits referrer if first order)
         try:
             from app.routers.referrals import process_referral_rewards
@@ -224,6 +250,9 @@ async def cashfree_webhook(request: Request, db: Session = Depends(get_db)):
                 ))
                 db.commit()
                 db.refresh(order)
+
+                # Deduct Clay Coins now that payment is confirmed
+                _deduct_coins_after_payment(order, db)
 
                 # Process referral rewards
                 try:
