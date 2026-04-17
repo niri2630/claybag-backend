@@ -183,6 +183,13 @@ def verify_payment(
         db.commit()
         db.refresh(order)
 
+        # Process referral rewards (credits referrer if first order)
+        try:
+            from app.routers.referrals import process_referral_rewards
+            process_referral_rewards(order, db)
+        except Exception as e:
+            logger.error("Failed to process referral rewards for order %s: %s", order.id, e)
+
         # Send order confirmation email (async-safe, never raises)
         _send_confirmation_email(order, db)
 
@@ -217,6 +224,13 @@ async def cashfree_webhook(request: Request, db: Session = Depends(get_db)):
                 ))
                 db.commit()
                 db.refresh(order)
+
+                # Process referral rewards
+                try:
+                    from app.routers.referrals import process_referral_rewards
+                    process_referral_rewards(order, db)
+                except Exception as e:
+                    logger.error("Failed to process referral rewards for order %s: %s", order.id, e)
 
                 # Send order confirmation email
                 _send_confirmation_email(order, db)

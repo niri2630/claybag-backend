@@ -44,6 +44,7 @@ class OrderCreate(BaseModel):
     shipping_city: str
     shipping_pincode: str
     notes: Optional[str] = None
+    coins_applied: Optional[float] = 0.0
     items: List[OrderItemCreate]
 
 
@@ -66,6 +67,7 @@ class OrderOut(BaseModel):
     notes: Optional[str]
     cf_order_id: Optional[str] = None
     payment_status: Optional[str] = None
+    coins_applied: Optional[float] = 0.0
     created_at: datetime
     items: List[OrderItemOut] = []
     tracking: List[OrderTrackingOut] = []

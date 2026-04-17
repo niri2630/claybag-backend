@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.models.referral import ReferralCode, Referral
 from app.schemas.user import UserCreate, LoginRequest, Token, UserOut, ForgotPasswordRequest, ResetPasswordRequest
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.otp_store import generate_otp, verify_otp
@@ -21,9 +22,27 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         phone=data.phone,
         password_hash=hash_password(data.password),
     )
+    # Handle referral code if provided
+    if data.referral_code:
+        code = data.referral_code.strip().upper()
+        rc = db.query(ReferralCode).filter(ReferralCode.code == code).first()
+        if rc:
+            user.referred_by = code
     db.add(user)
     db.commit()
     db.refresh(user)
+    # Create referral record if referred
+    if user.referred_by:
+        rc = db.query(ReferralCode).filter(ReferralCode.code == user.referred_by).first()
+        if rc:
+            referral = Referral(
+                referrer_id=rc.user_id,
+                referred_id=user.id,
+                referral_code=user.referred_by,
+                status="pending",
+            )
+            db.add(referral)
+            db.commit()
     return user
 
 

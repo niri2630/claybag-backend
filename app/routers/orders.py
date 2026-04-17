@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from app.database import get_db
 from app.models.order import Order, OrderItem, OrderTracking, OrderStatus
 from app.models.product import Product, ProductVariant, ProductImage, DiscountSlab
+from app.models.wallet import Wallet, WalletTransaction
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
 
@@ -136,10 +137,29 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         total += item_total
         items_to_create.append((item, unit_price, item_total, discount))
 
+    # Handle Clay Coins redemption
+    coins_applied = 0.0
+    if data.coins_applied and data.coins_applied > 0:
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).with_for_update().first()
+        if not wallet or wallet.balance < data.coins_applied:
+            raise HTTPException(400, "Insufficient Clay Coins balance")
+        if data.coins_applied > total:
+            raise HTTPException(400, "Cannot apply more coins than order total")
+        coins_applied = data.coins_applied
+        wallet.balance -= coins_applied
+        db.add(WalletTransaction(
+            wallet_id=wallet.id,
+            amount=coins_applied,
+            type="DEBIT",
+            source="REDEMPTION",
+            description=f"Applied {coins_applied} Clay Coins at checkout",
+        ))
+
     order = Order(
         order_number=_generate_order_number(db),
         user_id=current_user.id,
-        total_amount=total,
+        total_amount=total - coins_applied,
+        coins_applied=coins_applied,
         shipping_name=data.shipping_name,
         shipping_phone=data.shipping_phone,
         shipping_address=data.shipping_address,
@@ -224,6 +244,18 @@ def cancel_order(order_id: int, db: Session = Depends(get_db), current_user=Depe
     order.status = OrderStatus.CANCELLED
     order.payment_status = "CANCELLED"
     db.add(OrderTracking(order_id=order.id, status=OrderStatus.CANCELLED, note="Customer cancelled payment"))
+    # Refund Clay Coins if any were applied
+    if order.coins_applied and order.coins_applied > 0:
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).with_for_update().first()
+        if wallet:
+            wallet.balance += order.coins_applied
+            db.add(WalletTransaction(
+                wallet_id=wallet.id,
+                amount=order.coins_applied,
+                type="CREDIT",
+                source="REFUND",
+                description=f"Refund: order cancelled (Order #{order.order_number})",
+            ))
     db.commit()
     db.refresh(order)
     return _enrich_order(order, db)

@@ -8,6 +8,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     password: str
+    referral_code: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
