@@ -138,15 +138,14 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         total += item_total
         items_to_create.append((item, unit_price, item_total, discount))
 
-    # Apply 10% referral discount on first order for referred users
+    # Apply 10% referral discount only if user opted in
     referral_discount = 0.0
-    if current_user.referred_by:
+    if data.use_referral_discount and current_user.referred_by:
         referral = db.query(Referral).filter(
             Referral.referred_id == current_user.id,
             Referral.discount_used == False,
         ).first()
         if referral:
-            # Check this is their first order
             existing_orders = db.query(Order).filter(Order.user_id == current_user.id).count()
             if existing_orders == 0:
                 referral_discount = round(total * 0.10, 2)

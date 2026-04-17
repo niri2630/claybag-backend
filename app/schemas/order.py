@@ -45,6 +45,7 @@ class OrderCreate(BaseModel):
     shipping_pincode: str
     notes: Optional[str] = None
     coins_applied: Optional[float] = 0.0
+    use_referral_discount: Optional[bool] = False
     items: List[OrderItemCreate]
 
 

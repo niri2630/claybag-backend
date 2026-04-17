@@ -38,3 +38,29 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.delete("/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db), current_admin=Depends(get_current_admin)):
+    """Admin: permanently delete a user and all related data."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.id == current_admin.id:
+        raise HTTPException(400, "Cannot delete yourself")
+    # Delete related data
+    from app.models.wallet import Wallet, WalletTransaction
+    from app.models.referral import ReferralCode, Referral
+    from app.models.company_profile import CompanyProfile
+    from app.models.address import Address
+    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    if wallet:
+        db.query(WalletTransaction).filter(WalletTransaction.wallet_id == wallet.id).delete()
+        db.delete(wallet)
+    db.query(ReferralCode).filter(ReferralCode.user_id == user_id).delete()
+    db.query(Referral).filter((Referral.referrer_id == user_id) | (Referral.referred_id == user_id)).delete()
+    db.query(CompanyProfile).filter(CompanyProfile.user_id == user_id).delete()
+    db.query(Address).filter(Address.user_id == user_id).delete()
+    db.delete(user)
+    db.commit()
+    return {"detail": "User deleted"}

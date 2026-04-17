@@ -90,6 +90,24 @@ def apply_referral_code(data: ApplyCodeRequest, current_user=Depends(get_current
     return {"message": "Referral code applied! You'll get 10% off your first order."}
 
 
+@router.get("/my-discount-status")
+def get_referral_discount_status(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Check if current user is eligible for 10% referral discount on first order."""
+    if not current_user.referred_by:
+        return {"eligible": False, "discount_percent": 0}
+    referral = db.query(Referral).filter(
+        Referral.referred_id == current_user.id,
+        Referral.discount_used == False,
+    ).first()
+    if not referral:
+        return {"eligible": False, "discount_percent": 0}
+    from app.models.order import Order
+    existing_orders = db.query(Order).filter(Order.user_id == current_user.id).count()
+    if existing_orders > 0:
+        return {"eligible": False, "discount_percent": 0}
+    return {"eligible": True, "discount_percent": 10}
+
+
 def process_referral_rewards(order, db: Session):
     """Called after first order is confirmed. Credits referrer with Clay Coins."""
     user = db.query(User).filter(User.id == order.user_id).first()
