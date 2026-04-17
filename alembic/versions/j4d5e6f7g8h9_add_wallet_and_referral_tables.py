@@ -85,6 +85,12 @@ def upgrade() -> None:
             ) THEN
                 ALTER TABLE orders ADD COLUMN coins_applied DOUBLE PRECISION DEFAULT 0;
             END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'orders' AND column_name = 'referral_discount'
+            ) THEN
+                ALTER TABLE orders ADD COLUMN referral_discount DOUBLE PRECISION DEFAULT 0;
+            END IF;
         END $$;
     """)
 
@@ -96,3 +102,4 @@ def downgrade() -> None:
     op.drop_table("wallets")
     op.execute("ALTER TABLE users DROP COLUMN IF EXISTS referred_by")
     op.execute("ALTER TABLE orders DROP COLUMN IF EXISTS coins_applied")
+    op.execute("ALTER TABLE orders DROP COLUMN IF EXISTS referral_discount")

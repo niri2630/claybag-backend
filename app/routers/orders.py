@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.order import Order, OrderItem, OrderTracking, OrderStatus
 from app.models.product import Product, ProductVariant, ProductImage, DiscountSlab
 from app.models.wallet import Wallet, WalletTransaction
+from app.models.referral import Referral
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
 
@@ -137,6 +138,21 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         total += item_total
         items_to_create.append((item, unit_price, item_total, discount))
 
+    # Apply 10% referral discount on first order for referred users
+    referral_discount = 0.0
+    if current_user.referred_by:
+        referral = db.query(Referral).filter(
+            Referral.referred_id == current_user.id,
+            Referral.discount_used == False,
+        ).first()
+        if referral:
+            # Check this is their first order
+            existing_orders = db.query(Order).filter(Order.user_id == current_user.id).count()
+            if existing_orders == 0:
+                referral_discount = round(total * 0.10, 2)
+                total = total - referral_discount
+                referral.discount_used = True
+
     # Handle Clay Coins redemption
     coins_applied = 0.0
     if data.coins_applied and data.coins_applied > 0:
@@ -160,6 +176,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         user_id=current_user.id,
         total_amount=total - coins_applied,
         coins_applied=coins_applied,
+        referral_discount=referral_discount,
         shipping_name=data.shipping_name,
         shipping_phone=data.shipping_phone,
         shipping_address=data.shipping_address,

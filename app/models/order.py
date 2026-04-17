@@ -33,6 +33,7 @@ class Order(Base):
     payment_session_id = Column(String, nullable=True)  # Cashfree payment session
     payment_status = Column(String, nullable=True)  # Cashfree payment status
     coins_applied = Column(Float, default=0.0)
+    referral_discount = Column(Float, default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
