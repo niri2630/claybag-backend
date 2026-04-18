@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models.review import Review
 from app.models.user import User
 from app.models.product import Product
+from app.models.order import Order, OrderItem, OrderStatus
 from app.schemas.review import ReviewCreate, ReviewOut
 from app.core.security import get_current_user, get_current_admin
 
@@ -33,6 +34,19 @@ def create_review(data: ReviewCreate, db: Session = Depends(get_db), current_use
     product = db.query(Product).filter(Product.id == data.product_id).first()
     if not product:
         raise HTTPException(404, "Product not found")
+    # Verify user has purchased this product (confirmed or later status)
+    purchased = db.query(OrderItem).join(Order).filter(
+        Order.user_id == current_user.id,
+        OrderItem.product_id == data.product_id,
+        Order.status.in_([
+            OrderStatus.CONFIRMED,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+        ]),
+    ).first()
+    if not purchased:
+        raise HTTPException(403, "You can only review products you have purchased.")
     # Check if user already reviewed this product
     existing = db.query(Review).filter(
         Review.user_id == current_user.id,
@@ -50,6 +64,30 @@ def create_review(data: ReviewCreate, db: Session = Depends(get_db), current_use
     db.commit()
     db.refresh(review)
     return review_to_out(review)
+
+
+@router.get("/can-review/{product_id}")
+def can_review(product_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Check if current user is eligible to review this product (has purchased it)."""
+    purchased = db.query(OrderItem).join(Order).filter(
+        Order.user_id == current_user.id,
+        OrderItem.product_id == product_id,
+        Order.status.in_([
+            OrderStatus.CONFIRMED,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+        ]),
+    ).first()
+    already = db.query(Review).filter(
+        Review.user_id == current_user.id,
+        Review.product_id == product_id,
+    ).first()
+    return {
+        "can_review": bool(purchased) and not already,
+        "has_purchased": bool(purchased),
+        "already_reviewed": bool(already),
+    }
 
 
 @router.get("/my/{product_id}", response_model=Optional[ReviewOut])
