@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""  # display "From" email (defaults to SMTP_USER)
     SMTP_TLS: bool = True
 
+    # GST / Tax compliance
+    COMPANY_STATE: str = "Karnataka"  # Registered business state — used for intra/inter state GST split
+    COMPANY_GSTIN: str = ""  # Company GST identification number (shown on invoices)
+    COMPANY_LEGAL_NAME: str = "ClayBag"
+    DEFAULT_GST_RATE: float = 18.0  # Default GST % for products without explicit rate
+
     @property
     def origins(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

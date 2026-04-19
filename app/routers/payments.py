@@ -40,6 +40,8 @@ def _send_confirmation_email(order: Order, db: Session):
                 "quantity": oi.quantity,
                 "unit_price": oi.unit_price,
                 "total_price": oi.total_price,
+                "hsn_code": oi.hsn_code or "",
+                "gst_rate": oi.gst_rate or 0,
             })
 
         # Run in background thread so response isn't delayed

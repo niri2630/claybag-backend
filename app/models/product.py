@@ -26,6 +26,8 @@ class Product(Base):
     branding_info = Column(Text, nullable=True)       # Printing/branding methods (embroidery, screen print, etc.)
     branding_methods = Column(Text, nullable=True)    # JSON array of branding method tags
     size_chart_url = Column(String, nullable=True)    # URL to size chart image (for apparel)
+    hsn_code = Column(String(10), nullable=True, index=True)  # HSN classification code for GST
+    gst_rate = Column(Float, nullable=True)  # Override default GST rate (e.g. 5, 12, 18, 28). Null = use settings.DEFAULT_GST_RATE
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

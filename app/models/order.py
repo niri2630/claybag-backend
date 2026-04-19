@@ -34,6 +34,12 @@ class Order(Base):
     payment_status = Column(String, nullable=True)  # Cashfree payment status
     coins_applied = Column(Float, default=0.0)
     referral_discount = Column(Float, default=0.0)
+    # GST breakdown (prices are inclusive — these are computed back from inclusive total)
+    shipping_state = Column(String, nullable=True)         # Snapshotted for tax calc
+    taxable_amount = Column(Float, nullable=True)          # Sum of (item_total / (1 + gst/100))
+    cgst_amount = Column(Float, default=0.0)               # Intra-state only
+    sgst_amount = Column(Float, default=0.0)               # Intra-state only
+    igst_amount = Column(Float, default=0.0)               # Inter-state only
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -53,6 +59,9 @@ class OrderItem(Base):
     unit_price = Column(Float, nullable=False)
     total_price = Column(Float, nullable=False)
     discount_applied = Column(Float, default=0.0)
+    # GST snapshot (per line for invoice clarity)
+    hsn_code = Column(String(10), nullable=True)
+    gst_rate = Column(Float, nullable=True)  # Snapshot the rate used at order time
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")

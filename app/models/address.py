@@ -15,6 +15,7 @@ class Address(Base):
     phone = Column(String, nullable=False)
     address = Column(String, nullable=False)
     city = Column(String, nullable=False)
+    state = Column(String, nullable=True)  # Required for GST split (intra/inter state)
     pincode = Column(String, nullable=False)
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,6 +1,5 @@
 """
-Generate a branded order confirmation PDF — matches the format from the
-existing Logosouk invoice but branded for ClayBag, without the Invoice No. field.
+Generate a branded order confirmation / GST invoice PDF for ClayBag.
 """
 import io
 from datetime import datetime
@@ -17,6 +16,8 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os
+
+from app.core.config import settings
 
 # Register a Unicode-capable font for ₹ symbol
 # Try DejaVu (commonly available on Linux/Docker), fallback to using HTML entity
@@ -161,19 +162,18 @@ def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
     elements.append(Spacer(1, 6 * mm))
 
     # ── Seller / Buyer side by side ─────────────────────────────
-    seller_info = """<b>Seller</b><br/>
-Logosouk Merces Private Limited<br/>
-543, 32nd Cross, 9th Main,<br/>
-4th Block, Jayanagar,<br/>
-Bangalore - 560 011<br/>
-GSTN: 29AADCL6003E2ZS<br/>
-CIN: U74999KA2018PTC112752"""
+    gstin_line = f"GSTIN: {settings.COMPANY_GSTIN}<br/>" if settings.COMPANY_GSTIN else ""
+    seller_info = f"""<b>Seller</b><br/>
+{settings.COMPANY_LEGAL_NAME}<br/>
+{settings.COMPANY_STATE}, India<br/>
+{gstin_line}Email: talk2us@claybag.com"""
 
+    state_line = f"State: {order.shipping_state}<br/>" if order.shipping_state else ""
     buyer_info = f"""<b>Buyer</b><br/>
 {user.name}<br/>
 {order.shipping_address}<br/>
 {order.shipping_city} {order.shipping_pincode}<br/>
-{user.email}<br/>
+{state_line}{user.email}<br/>
 {order.shipping_phone}"""
 
     addr_data = [
@@ -211,7 +211,9 @@ CIN: U74999KA2018PTC112752"""
     item_header = [
         Paragraph("<b>#</b>", styles["CellHeader"]),
         Paragraph("<b>Product</b>", styles["CellHeader"]),
+        Paragraph("<b>HSN</b>", styles["CellHeader"]),
         Paragraph("<b>Qty</b>", styles["CellHeader"]),
+        Paragraph("<b>GST%</b>", styles["CellHeader"]),
         Paragraph("<b>Unit Price</b>", styles["CellHeader"]),
         Paragraph("<b>Total</b>", styles["CellHeader"]),
     ]
@@ -221,15 +223,18 @@ CIN: U74999KA2018PTC112752"""
         label = item["product_name"]
         if item.get("variant_label"):
             label += f' ({item["variant_label"]})'
+        gst_rate_disp = f'{item.get("gst_rate", 0):.0f}%' if item.get("gst_rate") else "-"
         item_rows.append([
             Paragraph(str(idx), styles["CellText"]),
             Paragraph(label, styles["CellText"]),
+            Paragraph(item.get("hsn_code") or "-", styles["CellText"]),
             Paragraph(str(item["quantity"]), styles["CellText"]),
+            Paragraph(gst_rate_disp, styles["CellText"]),
             Paragraph(f'{RUPEE}{item["unit_price"]:,.2f}', styles["CellText"]),
             Paragraph(f'{RUPEE}{item["total_price"]:,.2f}', styles["CellText"]),
         ])
 
-    items_table = Table(item_rows, colWidths=[30, 250, 40, 80, 80])
+    items_table = Table(item_rows, colWidths=[20, 180, 50, 30, 40, 70, 80])
     items_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -253,12 +258,44 @@ CIN: U74999KA2018PTC112752"""
     total_bold_label = ParagraphStyle("", fontName=FONT_NAME_BOLD, fontSize=12, textColor=BLACK, alignment=TA_RIGHT)
     total_bold_value = ParagraphStyle("", fontName=FONT_NAME_BOLD, fontSize=12, textColor=BLACK, alignment=TA_RIGHT)
 
-    totals_data = [
-        [Paragraph("Subtotal", total_label_style), Paragraph(f"{RUPEE}{order.total_amount:,.2f}", total_value_style)],
-        [Paragraph("Shipping", total_label_style), Paragraph("FREE", total_value_style)],
-        ["", ""],
-        [Paragraph("Order Total", total_bold_label), Paragraph(f"{RUPEE}{order.total_amount:,.2f}", total_bold_value)],
-    ]
+    totals_data = []
+    # Show GST breakdown if computed
+    if order.taxable_amount and order.taxable_amount > 0:
+        totals_data.append([
+            Paragraph("Taxable Amount", total_label_style),
+            Paragraph(f"{RUPEE}{order.taxable_amount:,.2f}", total_value_style)
+        ])
+        if (order.cgst_amount or 0) > 0 or (order.sgst_amount or 0) > 0:
+            totals_data.append([
+                Paragraph("CGST", total_label_style),
+                Paragraph(f"{RUPEE}{(order.cgst_amount or 0):,.2f}", total_value_style)
+            ])
+            totals_data.append([
+                Paragraph("SGST", total_label_style),
+                Paragraph(f"{RUPEE}{(order.sgst_amount or 0):,.2f}", total_value_style)
+            ])
+        if (order.igst_amount or 0) > 0:
+            totals_data.append([
+                Paragraph("IGST", total_label_style),
+                Paragraph(f"{RUPEE}{(order.igst_amount or 0):,.2f}", total_value_style)
+            ])
+
+    totals_data.append([Paragraph("Shipping", total_label_style), Paragraph("FREE", total_value_style)])
+    if (order.coins_applied or 0) > 0:
+        totals_data.append([
+            Paragraph("Clay Coins Applied", total_label_style),
+            Paragraph(f"-{RUPEE}{order.coins_applied:,.2f}", total_value_style)
+        ])
+    if (order.referral_discount or 0) > 0:
+        totals_data.append([
+            Paragraph("Referral Discount (10%)", total_label_style),
+            Paragraph(f"-{RUPEE}{order.referral_discount:,.2f}", total_value_style)
+        ])
+    totals_data.append(["", ""])
+    totals_data.append([
+        Paragraph("Order Total (Incl. GST)", total_bold_label),
+        Paragraph(f"{RUPEE}{order.total_amount:,.2f}", total_bold_value)
+    ])
     totals_table = Table(totals_data, colWidths=[380, 100])
     totals_table.setStyle(TableStyle([
         ("LINEABOVE", (0, -1), (-1, -1), 1.5, YELLOW),

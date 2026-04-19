@@ -3,6 +3,32 @@ from datetime import datetime
 from typing import Optional, List
 import json
 
+# Valid GST rates as per Indian tax regulations
+_VALID_GST_RATES = {0, 5, 12, 18, 28}
+
+
+def _validate_gst_rate(v):
+    if v is None:
+        return v
+    # Accept floats and ints; round to nearest 0.01
+    rate = round(float(v), 2)
+    if rate < 0 or rate > 100:
+        raise ValueError("gst_rate must be between 0 and 100")
+    # Common rates only — flag unusual values but allow them (some products may have custom)
+    return rate
+
+
+def _validate_hsn_code(v):
+    if v is None or v == "":
+        return None
+    s = str(v).strip().upper().replace(" ", "")
+    if len(s) > 10:
+        raise ValueError("hsn_code max length is 10")
+    # HSN should be alphanumeric only
+    if not s.isalnum():
+        raise ValueError("hsn_code must be alphanumeric only")
+    return s
+
 
 class ProductImageOut(BaseModel):
     id: int
@@ -86,6 +112,16 @@ class ProductCreate(BaseModel):
     is_featured: bool = False
     min_order_qty: Optional[int] = None  # null = no MOQ
     size_chart_url: Optional[str] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
+
+    @field_validator("gst_rate")
+    @classmethod
+    def _v_gst(cls, v): return _validate_gst_rate(v)
+
+    @field_validator("hsn_code")
+    @classmethod
+    def _v_hsn(cls, v): return _validate_hsn_code(v)
 
 
 class ProductUpdate(BaseModel):
@@ -105,6 +141,16 @@ class ProductUpdate(BaseModel):
     is_featured: Optional[bool] = None
     min_order_qty: Optional[int] = None
     size_chart_url: Optional[str] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
+
+    @field_validator("gst_rate")
+    @classmethod
+    def _v_gst(cls, v): return _validate_gst_rate(v)
+
+    @field_validator("hsn_code")
+    @classmethod
+    def _v_hsn(cls, v): return _validate_hsn_code(v)
 
 
 class ProductOut(BaseModel):
@@ -126,6 +172,8 @@ class ProductOut(BaseModel):
     is_featured: bool = False
     min_order_qty: Optional[int] = None
     size_chart_url: Optional[str] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
     variant_mode: str = "multi_qty"  # from parent category
     created_at: datetime
     images: List[ProductImageOut] = []

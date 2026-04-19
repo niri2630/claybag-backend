@@ -1,16 +1,36 @@
 import secrets
 import string
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional, Tuple
 
 from app.database import get_db
 from app.models.order import Order, OrderItem, OrderTracking, OrderStatus
 from app.models.product import Product, ProductVariant, ProductImage, DiscountSlab
+from app.models.user import User
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.referral import Referral
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
+from app.core.config import settings
+
+
+def _normalize_state(s: Optional[str]) -> str:
+    """Lowercase + strip for state comparison (handles 'Karnataka', 'karnataka ', etc.)."""
+    return (s or "").strip().lower()
+
+
+def _split_gst(taxable: float, rate: float, intra_state: bool) -> Dict[str, float]:
+    """Compute CGST/SGST or IGST given taxable amount and GST rate.
+    intra_state=True (buyer in our state) → split as CGST+SGST.
+    intra_state=False → full IGST.
+    """
+    tax = round(taxable * (rate / 100.0), 2)
+    if intra_state:
+        half = round(tax / 2.0, 2)
+        return {"cgst": half, "sgst": tax - half, "igst": 0.0}
+    return {"cgst": 0.0, "sgst": 0.0, "igst": tax}
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -136,7 +156,10 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         item_total, discount = calculate_price(product, variant, item.quantity, db)
         unit_price = product.base_price + (variant.price_adjustment if variant else 0)
         total += item_total
-        items_to_create.append((item, unit_price, item_total, discount))
+        # Snapshot HSN + GST rate for invoice
+        gst_rate = product.gst_rate if product.gst_rate is not None else settings.DEFAULT_GST_RATE
+        hsn_code = product.hsn_code
+        items_to_create.append((item, unit_price, item_total, discount, hsn_code, gst_rate))
 
     # Apply 10% referral discount only if user opted in
     referral_discount = 0.0
@@ -163,23 +186,48 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
             max_coins = 0
         coins_applied = min(data.coins_applied, max_coins)
 
+    final_total = max(round(total - coins_applied, 2), 1.0)
+
+    # GST breakdown (prices are inclusive of GST → back-calculate)
+    intra_state = _normalize_state(data.shipping_state) == _normalize_state(settings.COMPANY_STATE)
+    cgst_total = sgst_total = igst_total = 0.0
+    taxable_total = 0.0
+    # Distribute coins/referral discount proportionally per line so GST math stays accurate.
+    # If discounts apply, scale each line proportionally.
+    discount_scale = (final_total / total) if total > 0 else 1.0
+
+    for _item, _u, item_total, _d, _hsn, gst_rate in items_to_create:
+        line_after_discount = round(item_total * discount_scale, 2)
+        # Inclusive: taxable = line / (1 + r/100); tax = line - taxable
+        taxable = round(line_after_discount / (1.0 + gst_rate / 100.0), 2)
+        split = _split_gst(taxable, gst_rate, intra_state)
+        taxable_total += taxable
+        cgst_total += split["cgst"]
+        sgst_total += split["sgst"]
+        igst_total += split["igst"]
+
     order = Order(
         order_number=_generate_order_number(db),
         user_id=current_user.id,
-        total_amount=max(round(total - coins_applied, 2), 1.0),
+        total_amount=final_total,
         coins_applied=coins_applied,
         referral_discount=referral_discount,
         shipping_name=data.shipping_name,
         shipping_phone=data.shipping_phone,
         shipping_address=data.shipping_address,
         shipping_city=data.shipping_city,
+        shipping_state=data.shipping_state,
         shipping_pincode=data.shipping_pincode,
         notes=data.notes,
+        taxable_amount=round(taxable_total, 2),
+        cgst_amount=round(cgst_total, 2),
+        sgst_amount=round(sgst_total, 2),
+        igst_amount=round(igst_total, 2),
     )
     db.add(order)
     db.flush()
 
-    for item, unit_price, item_total, discount in items_to_create:
+    for item, unit_price, item_total, discount, hsn_code, gst_rate in items_to_create:
         db.add(OrderItem(
             order_id=order.id,
             product_id=item.product_id,
@@ -188,6 +236,8 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
             unit_price=unit_price,
             total_price=item_total,
             discount_applied=discount,
+            hsn_code=hsn_code,
+            gst_rate=gst_rate,
         ))
 
     db.add(OrderTracking(order_id=order.id, status=OrderStatus.PENDING, note="Order placed"))
@@ -279,3 +329,83 @@ def delete_order(order_id: int, db: Session = Depends(get_db), _=Depends(get_cur
     db.delete(order)
     db.commit()
     return {"detail": "Order deleted"}
+
+
+# ── Invoice generation ────────────────────────────────────────
+
+def _build_items_detail(order: Order, db: Session) -> List[dict]:
+    """Build the items_detail list used by PDF generator."""
+    items = []
+    for oi in order.items:
+        product = db.query(Product).filter(Product.id == oi.product_id).first()
+        variant_label = ""
+        if oi.variant_id:
+            variant = db.query(ProductVariant).filter(ProductVariant.id == oi.variant_id).first()
+            if variant:
+                variant_label = f"{variant.variant_type}: {variant.variant_value}"
+        items.append({
+            "product_name": product.name if product else f"Product #{oi.product_id}",
+            "variant_label": variant_label,
+            "quantity": oi.quantity,
+            "unit_price": oi.unit_price,
+            "total_price": oi.total_price,
+            "hsn_code": oi.hsn_code or "",
+            "gst_rate": oi.gst_rate or 0,
+        })
+    return items
+
+
+@router.get("/{order_id}/invoice")
+def download_invoice(order_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Download the GST invoice PDF for an order.
+    Customer can download their own; admin can download any."""
+    from app.core.pdf_generator import generate_order_pdf
+
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if not current_user.is_admin and order.user_id != current_user.id:
+        raise HTTPException(403, "Access denied")
+
+    user = db.query(User).filter(User.id == order.user_id).first()
+    if not user:
+        raise HTTPException(404, "Order's user not found")
+
+    items_detail = _build_items_detail(order, db)
+    try:
+        pdf_bytes = generate_order_pdf(order, user, items_detail)
+    except Exception as e:
+        raise HTTPException(500, f"Invoice generation failed: {e}")
+
+    order_num = order.order_number or f"CB-{order.id}"
+    filename = f"ClayBag-Invoice-{order_num}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/{order_id}/resend-invoice")
+def resend_invoice_email(order_id: int, db: Session = Depends(get_db), _=Depends(get_current_admin)):
+    """Admin: re-send the order confirmation + invoice email to the customer."""
+    from app.core.email import send_order_confirmation
+    import threading
+
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    user = db.query(User).filter(User.id == order.user_id).first()
+    if not user or not user.email:
+        raise HTTPException(404, "Order's user has no email")
+
+    items_detail = _build_items_detail(order, db)
+
+    # Fire-and-forget: don't block admin response
+    threading.Thread(
+        target=send_order_confirmation,
+        args=(order, user, items_detail),
+        daemon=True,
+    ).start()
+
+    return {"detail": f"Invoice email queued for {user.email}"}

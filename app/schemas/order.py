@@ -1,7 +1,29 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import Optional, List
 from app.models.order import OrderStatus
+
+# Indian states + UTs (case/spacing-insensitive validation)
+_INDIAN_STATES = {
+    "andhra pradesh", "arunachal pradesh", "assam", "bihar", "chhattisgarh",
+    "delhi", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
+    "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur",
+    "meghalaya", "mizoram", "nagaland", "odisha", "punjab", "rajasthan",
+    "sikkim", "tamil nadu", "telangana", "tripura", "uttar pradesh",
+    "uttarakhand", "west bengal",
+    "andaman and nicobar islands", "chandigarh",
+    "dadra and nagar haveli and daman and diu",
+    "jammu and kashmir", "ladakh", "lakshadweep", "puducherry",
+}
+
+
+def _validate_state(v: Optional[str]) -> Optional[str]:
+    if v is None or v == "":
+        return None
+    s = str(v).strip()
+    if s.lower() not in _INDIAN_STATES:
+        raise ValueError(f"Invalid Indian state: {s}")
+    return s
 
 
 class OrderItemCreate(BaseModel):
@@ -22,6 +44,8 @@ class OrderItemOut(BaseModel):
     unit_price: float
     total_price: float
     discount_applied: float
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -42,11 +66,16 @@ class OrderCreate(BaseModel):
     shipping_phone: str
     shipping_address: str
     shipping_city: str
+    shipping_state: Optional[str] = None
     shipping_pincode: str
     notes: Optional[str] = None
     coins_applied: Optional[float] = 0.0
     use_referral_discount: Optional[bool] = False
     items: List[OrderItemCreate]
+
+    @field_validator("shipping_state")
+    @classmethod
+    def _v_state(cls, v): return _validate_state(v)
 
 
 class OrderStatusUpdate(BaseModel):
@@ -70,6 +99,11 @@ class OrderOut(BaseModel):
     payment_status: Optional[str] = None
     coins_applied: Optional[float] = 0.0
     referral_discount: Optional[float] = 0.0
+    shipping_state: Optional[str] = None
+    taxable_amount: Optional[float] = None
+    cgst_amount: Optional[float] = 0.0
+    sgst_amount: Optional[float] = 0.0
+    igst_amount: Optional[float] = 0.0
     created_at: datetime
     items: List[OrderItemOut] = []
     tracking: List[OrderTrackingOut] = []
