@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc
 from typing import List, Optional
 import time
+import re
 
 from app.database import get_db
 from app.models.category import Category, SubCategory
@@ -14,6 +15,19 @@ from app.schemas.category import (
 from app.core.security import get_current_admin
 
 router = APIRouter(prefix="/categories", tags=["categories"])
+
+
+def _normalize_slug(s: Optional[str]) -> Optional[str]:
+    """URL-safe slug: lowercase, non-alphanumeric -> dash, collapse repeats, trim.
+    "Gifts Under 99" -> "gifts-under-99"
+    "Hoodies & jackets" -> "hoodies-jackets"
+    None / empty -> None
+    """
+    if not s:
+        return None
+    out = re.sub(r"[^a-z0-9]+", "-", s.lower())
+    out = out.strip("-")
+    return out or None
 
 # Simple in-memory cache for categories (refreshes every 5 minutes)
 _categories_cache = {"data": None, "timestamp": 0}
@@ -87,9 +101,13 @@ def get_category(category_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=CategoryOut)
 def create_category(data: CategoryCreate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
-    if db.query(Category).filter(Category.slug == data.slug).first():
+    payload = data.model_dump()
+    payload["slug"] = _normalize_slug(payload.get("slug")) or _normalize_slug(payload.get("name"))
+    if not payload["slug"]:
+        raise HTTPException(400, "Slug cannot be empty")
+    if db.query(Category).filter(Category.slug == payload["slug"]).first():
         raise HTTPException(400, "Slug already exists")
-    cat = Category(**data.model_dump())
+    cat = Category(**payload)
     db.add(cat)
     db.commit()
     db.refresh(cat)
@@ -102,7 +120,16 @@ def update_category(category_id: int, data: CategoryUpdate, db: Session = Depend
     cat = db.query(Category).filter(Category.id == category_id).first()
     if not cat:
         raise HTTPException(404, "Category not found")
-    for k, v in data.model_dump(exclude_none=True).items():
+    updates = data.model_dump(exclude_none=True)
+    if "slug" in updates:
+        updates["slug"] = _normalize_slug(updates["slug"])
+        if not updates["slug"]:
+            raise HTTPException(400, "Slug cannot be empty")
+        # Prevent duplicate — unique constraint would error with 500 otherwise
+        if updates["slug"] != cat.slug:
+            if db.query(Category).filter(Category.slug == updates["slug"], Category.id != category_id).first():
+                raise HTTPException(400, f"Slug '{updates['slug']}' already in use by another category")
+    for k, v in updates.items():
         setattr(cat, k, v)
     db.commit()
     db.refresh(cat)
@@ -133,9 +160,13 @@ def list_subcategories(category_id: int, db: Session = Depends(get_db)):
 
 @router.post("/subcategories", response_model=SubCategoryOut)
 def create_subcategory(data: SubCategoryCreate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
-    if db.query(SubCategory).filter(SubCategory.slug == data.slug).first():
+    payload = data.model_dump()
+    payload["slug"] = _normalize_slug(payload.get("slug")) or _normalize_slug(payload.get("name"))
+    if not payload["slug"]:
+        raise HTTPException(400, "Slug cannot be empty")
+    if db.query(SubCategory).filter(SubCategory.slug == payload["slug"]).first():
         raise HTTPException(400, "Slug already exists")
-    sub = SubCategory(**data.model_dump())
+    sub = SubCategory(**payload)
     db.add(sub)
     db.commit()
     db.refresh(sub)
@@ -148,7 +179,16 @@ def update_subcategory(sub_id: int, data: SubCategoryUpdate, db: Session = Depen
     sub = db.query(SubCategory).filter(SubCategory.id == sub_id).first()
     if not sub:
         raise HTTPException(404, "SubCategory not found")
-    for k, v in data.model_dump(exclude_none=True).items():
+    updates = data.model_dump(exclude_none=True)
+    if "slug" in updates:
+        updates["slug"] = _normalize_slug(updates["slug"])
+        if not updates["slug"]:
+            raise HTTPException(400, "Slug cannot be empty")
+        # Prevent duplicate — unique constraint would error with 500 otherwise
+        if updates["slug"] != sub.slug:
+            if db.query(SubCategory).filter(SubCategory.slug == updates["slug"], SubCategory.id != sub_id).first():
+                raise HTTPException(400, f"Slug '{updates['slug']}' already in use by another subcategory")
+    for k, v in updates.items():
         setattr(sub, k, v)
     db.commit()
     db.refresh(sub)

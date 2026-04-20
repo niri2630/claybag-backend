@@ -13,6 +13,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    email: Optional[EmailStr] = None
     phone: Optional[str] = None
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None

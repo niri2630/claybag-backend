@@ -63,3 +63,26 @@ def get_user_company_profile(user_id: int, db: Session = Depends(get_db), _=Depe
     if not profile:
         raise HTTPException(404, "Company profile not found for this user")
     return profile
+
+
+@router.put("/user/{user_id}", response_model=CompanyProfileOut)
+def admin_update_user_company_profile(user_id: int, data: CompanyProfileUpdate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
+    """Admin: update (or create) a company profile for any user."""
+    # Verify user exists
+    from app.models.user import User
+    if not db.query(User).filter(User.id == user_id).first():
+        raise HTTPException(404, "User not found")
+    profile = db.query(CompanyProfile).filter(CompanyProfile.user_id == user_id).first()
+    if not profile:
+        # Auto-create — requires both company_name and business_type (they're nullable=False on model)
+        payload = data.model_dump(exclude_unset=True)
+        if not payload.get("company_name") or not payload.get("business_type"):
+            raise HTTPException(400, "company_name and business_type are required to create a profile")
+        profile = CompanyProfile(user_id=user_id, **payload)
+        db.add(profile)
+    else:
+        for k, v in data.model_dump(exclude_unset=True).items():
+            setattr(profile, k, v)
+    db.commit()
+    db.refresh(profile)
+    return profile

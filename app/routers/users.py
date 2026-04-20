@@ -29,13 +29,34 @@ def get_user(user_id: int, db: Session = Depends(get_db), _=Depends(get_current_
 
 
 @router.put("/{user_id}", response_model=UserOut)
-def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
+def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), current_admin=Depends(get_current_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, "User not found")
-    for k, v in data.model_dump(exclude_none=True).items():
+    updates = data.model_dump(exclude_none=True)
+
+    # Guard against self-lockout: admin can't demote or deactivate themselves
+    if user.id == current_admin.id:
+        if updates.get("is_admin") is False:
+            raise HTTPException(400, "You cannot remove your own admin access")
+        if updates.get("is_active") is False:
+            raise HTTPException(400, "You cannot deactivate your own account")
+
+    # Check email uniqueness before commit (gives clean 400 instead of 500)
+    new_email = updates.get("email")
+    if new_email and new_email != user.email:
+        existing = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+        if existing:
+            raise HTTPException(400, f"Email '{new_email}' is already in use by another user")
+
+    for k, v in updates.items():
         setattr(user, k, v)
-    db.commit()
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(400, "Update failed — conflicting data (duplicate email or invalid field)")
     db.refresh(user)
     return user
 
