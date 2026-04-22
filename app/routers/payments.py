@@ -218,6 +218,13 @@ def verify_payment(
         except Exception as e:
             logger.error("Failed to process referral rewards for order %s: %s", order.id, e)
 
+        # Process buyer's order bonus (100 Clay Coins on each of the first 2 confirmed orders)
+        try:
+            from app.routers.referrals import process_order_bonus
+            process_order_bonus(order, db)
+        except Exception as e:
+            logger.error("Failed to process order bonus for order %s: %s", order.id, e)
+
         # Send order confirmation email (async-safe, never raises)
         _send_confirmation_email(order, db)
 
@@ -262,6 +269,13 @@ async def cashfree_webhook(request: Request, db: Session = Depends(get_db)):
                     process_referral_rewards(order, db)
                 except Exception as e:
                     logger.error("Failed to process referral rewards for order %s: %s", order.id, e)
+
+                # Process buyer's order bonus (100 Clay Coins on each of the first 2 confirmed orders)
+                try:
+                    from app.routers.referrals import process_order_bonus
+                    process_order_bonus(order, db)
+                except Exception as e:
+                    logger.error("Failed to process order bonus for order %s: %s", order.id, e)
 
                 # Send order confirmation email
                 _send_confirmation_email(order, db)

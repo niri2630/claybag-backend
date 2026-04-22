@@ -12,7 +12,7 @@ from app.core.email import send_otp_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SIGNUP_BONUS = 300.0  # Clay Coins credited to every new account
+SIGNUP_BONUS = 100.0  # Clay Coins credited instantly on account creation
 
 
 @router.post("/register", response_model=UserOut)
@@ -36,7 +36,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()  # assigns user.id without committing
 
-    # Welcome bonus — 300 Clay Coins for every new account
+    # Welcome bonus — 100 Clay Coins instantly (+100 on each of first 2 orders, handled in payments)
     wallet = Wallet(user_id=user.id, balance=SIGNUP_BONUS)
     db.add(wallet)
     db.flush()  # assigns wallet.id

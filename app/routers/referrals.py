@@ -15,7 +15,9 @@ from app.core.security import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
 
-REFERRAL_REWARD = 50.0  # Clay Coins
+REFERRAL_REWARD = 50.0  # Clay Coins — referrer gets this when their referred user's first order confirms
+ORDER_BONUS = 100.0     # Clay Coins — buyer gets this for each of their first 2 confirmed orders
+MAX_ORDER_BONUSES = 2   # Number of confirmed orders that qualify for the bonus
 
 
 def _generate_code() -> str:
@@ -134,6 +136,49 @@ def process_referral_rewards(order, db: Session):
     referral.coins_credited = True
     referral.status = "completed"
     referral.completed_at = func.now()
+    db.commit()
+
+
+def process_order_bonus(order, db: Session):
+    """Called after an order is confirmed. Credits ORDER_BONUS to buyer for their first MAX_ORDER_BONUSES orders.
+
+    Safe to call multiple times (idempotent via reference_id) — webhooks + manual verification may both fire,
+    and the idempotency + cap checks both happen INSIDE the wallet FOR UPDATE lock so concurrent calls
+    for the same order can't both credit.
+    """
+    # Acquire wallet row lock FIRST — serializes concurrent callers for the same user
+    from app.routers.wallet import get_or_create_wallet
+    wallet = get_or_create_wallet(order.user_id, db, lock=True)
+
+    # Idempotency check INSIDE the lock — a concurrent thread holding this lock would have
+    # already committed its ORDER_BONUS row by the time we get here, so we'll see it.
+    already = db.query(WalletTransaction).filter(
+        WalletTransaction.wallet_id == wallet.id,
+        WalletTransaction.source == "ORDER_BONUS",
+        WalletTransaction.reference_id == str(order.id),
+    ).first()
+    if already:
+        return
+
+    # Cap: count total ORDER_BONUS transactions already issued to this user (also inside lock)
+    bonuses_given = db.query(WalletTransaction).filter(
+        WalletTransaction.wallet_id == wallet.id,
+        WalletTransaction.source == "ORDER_BONUS",
+    ).count()
+    if bonuses_given >= MAX_ORDER_BONUSES:
+        return
+
+    # Credit
+    wallet.balance += ORDER_BONUS
+    order_num = getattr(order, "order_number", None) or f"#{order.id}"
+    db.add(WalletTransaction(
+        wallet_id=wallet.id,
+        amount=ORDER_BONUS,
+        type="CREDIT",
+        source="ORDER_BONUS",
+        description=f"Order bonus — thank you for your purchase ({order_num})",
+        reference_id=str(order.id),
+    ))
     db.commit()
 
 
