@@ -12,7 +12,7 @@ from app.core.email import send_otp_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SIGNUP_BONUS = 100.0  # Clay Coins credited to every new account
+SIGNUP_BONUS = 300.0  # Clay Coins credited to every new account
 
 
 @router.post("/register", response_model=UserOut)
@@ -31,14 +31,15 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         rc = db.query(ReferralCode).filter(ReferralCode.code == code).first()
         if rc:
             user.referred_by = code
+    # Build user, wallet, welcome transaction, and (optional) referral record in ONE transaction
+    # so a failure anywhere rolls the whole thing back — never leaves an orphan user without a wallet.
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.flush()  # assigns user.id without committing
 
-    # Welcome bonus: credit SIGNUP_BONUS Clay Coins to the new user's wallet
+    # Welcome bonus — 300 Clay Coins for every new account
     wallet = Wallet(user_id=user.id, balance=SIGNUP_BONUS)
     db.add(wallet)
-    db.flush()  # get wallet.id without ending the transaction
+    db.flush()  # assigns wallet.id
     db.add(WalletTransaction(
         wallet_id=wallet.id,
         amount=SIGNUP_BONUS,
@@ -47,20 +48,20 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         description="Welcome bonus for creating a ClayBag account",
         reference_id=None,
     ))
-    db.commit()
 
-    # Create referral record if referred
+    # Referral record if the user signed up via a valid referral code
     if user.referred_by:
         rc = db.query(ReferralCode).filter(ReferralCode.code == user.referred_by).first()
         if rc:
-            referral = Referral(
+            db.add(Referral(
                 referrer_id=rc.user_id,
                 referred_id=user.id,
                 referral_code=user.referred_by,
                 status="pending",
-            )
-            db.add(referral)
-            db.commit()
+            ))
+
+    db.commit()
+    db.refresh(user)
     return user
 
 

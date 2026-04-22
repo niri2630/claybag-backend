@@ -25,7 +25,7 @@ class WalletTransaction(Base):
     wallet_id = Column(Integer, ForeignKey("wallets.id"), nullable=False)
     amount = Column(Float, nullable=False)
     type = Column(String, nullable=False)  # CREDIT or DEBIT
-    source = Column(String, nullable=False)  # REFERRAL, PURCHASE, REDEMPTION, CAMPAIGN, ADMIN
+    source = Column(String, nullable=False)  # REFERRAL, PURCHASE, REDEMPTION, CAMPAIGN, ADMIN, SIGNUP
     description = Column(Text, nullable=True)
     reference_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
