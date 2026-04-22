@@ -15,7 +15,7 @@ from app.core.security import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
 
-REFERRAL_REWARD = 500.0  # Clay Coins
+REFERRAL_REWARD = 50.0  # Clay Coins
 
 
 def _generate_code() -> str:

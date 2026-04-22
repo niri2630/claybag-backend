@@ -4,12 +4,15 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.referral import ReferralCode, Referral
+from app.models.wallet import Wallet, WalletTransaction
 from app.schemas.user import UserCreate, LoginRequest, Token, UserOut, ForgotPasswordRequest, ResetPasswordRequest
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.otp_store import generate_otp, verify_otp
 from app.core.email import send_otp_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+SIGNUP_BONUS = 100.0  # Clay Coins credited to every new account
 
 
 @router.post("/register", response_model=UserOut)
@@ -31,6 +34,21 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Welcome bonus: credit SIGNUP_BONUS Clay Coins to the new user's wallet
+    wallet = Wallet(user_id=user.id, balance=SIGNUP_BONUS)
+    db.add(wallet)
+    db.flush()  # get wallet.id without ending the transaction
+    db.add(WalletTransaction(
+        wallet_id=wallet.id,
+        amount=SIGNUP_BONUS,
+        type="CREDIT",
+        source="SIGNUP",
+        description="Welcome bonus for creating a ClayBag account",
+        reference_id=None,
+    ))
+    db.commit()
+
     # Create referral record if referred
     if user.referred_by:
         rc = db.query(ReferralCode).filter(ReferralCode.code == user.referred_by).first()
