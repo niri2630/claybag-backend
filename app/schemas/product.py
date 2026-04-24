@@ -111,6 +111,8 @@ class ProductCreate(BaseModel):
     has_variants: bool = False
     is_featured: bool = False
     min_order_qty: Optional[int] = None  # null = no MOQ
+    moq_unit: Optional[str] = None  # "pcs", "sq.in", "kg", etc. Default "pcs".
+    pricing_mode: Optional[str] = None  # "per_unit" (default) or "per_area"
     size_chart_url: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
@@ -140,6 +142,8 @@ class ProductUpdate(BaseModel):
     has_variants: Optional[bool] = None
     is_featured: Optional[bool] = None
     min_order_qty: Optional[int] = None
+    moq_unit: Optional[str] = None
+    pricing_mode: Optional[str] = None
     size_chart_url: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
@@ -171,6 +175,8 @@ class ProductOut(BaseModel):
     has_variants: bool = False
     is_featured: bool = False
     min_order_qty: Optional[int] = None
+    moq_unit: Optional[str] = "pcs"
+    pricing_mode: Optional[str] = "per_unit"
     size_chart_url: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None

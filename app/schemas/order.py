@@ -30,6 +30,9 @@ class OrderItemCreate(BaseModel):
     product_id: int
     variant_id: Optional[int] = None
     quantity: int
+    # Per-area pricing (stickers etc.) — null for regular per-unit products
+    dimension_length: Optional[float] = None   # Inches
+    dimension_breadth: Optional[float] = None  # Inches
 
 
 class OrderItemOut(BaseModel):
@@ -46,6 +49,11 @@ class OrderItemOut(BaseModel):
     discount_applied: float
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
+    # Per-area line items (stickers) — null otherwise
+    dimension_length: Optional[float] = None
+    dimension_breadth: Optional[float] = None
+    computed_area: Optional[float] = None
+    area_rate: Optional[float] = None
 
     class Config:
         from_attributes = True

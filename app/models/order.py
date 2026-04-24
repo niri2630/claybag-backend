@@ -62,6 +62,11 @@ class OrderItem(Base):
     # GST snapshot (per line for invoice clarity)
     hsn_code = Column(String(10), nullable=True)
     gst_rate = Column(Float, nullable=True)  # Snapshot the rate used at order time
+    # Per-area (formula pricing) fields — null for standard per-unit items
+    dimension_length = Column(Float, nullable=True)   # Inches
+    dimension_breadth = Column(Float, nullable=True)  # Inches
+    computed_area = Column(Float, nullable=True)      # L x B x quantity (sq.in)
+    area_rate = Column(Float, nullable=True)          # Rate per sq.in applied at order time
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")

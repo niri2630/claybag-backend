@@ -23,6 +23,8 @@ class Product(Base):
     has_variants = Column(Boolean, default=False)  # sizes, colors, etc.
     is_featured = Column(Boolean, default=False)   # show in hot sellers on homepage
     min_order_qty = Column(Integer, nullable=True)   # MOQ — null means no minimum (1 unit OK)
+    moq_unit = Column(String, nullable=True, default="pcs")  # Unit label for MOQ: "pcs", "sq.in", "kg", etc.
+    pricing_mode = Column(String, nullable=True, default="per_unit")  # "per_unit" (default) or "per_area" (L x B x Qty)
     branding_info = Column(Text, nullable=True)       # Printing/branding methods (embroidery, screen print, etc.)
     branding_methods = Column(Text, nullable=True)    # JSON array of branding method tags
     size_chart_url = Column(String, nullable=True)    # URL to size chart image (for apparel)

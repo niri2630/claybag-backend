@@ -89,6 +89,34 @@ def _enrich_orders(orders: list, db: Session) -> list:
     return [_enrich_order(o, db) for o in orders]
 
 
+def calculate_area_price(product: Product, length: float, breadth: float, quantity: int, db: Session) -> Tuple[float, float, float, float]:
+    """Per-area (formula) pricing for products like stickers.
+
+    Returns: (line_total, computed_area, rate_per_sq_in, computed_area_for_slab)
+    Total = L x B x quantity (sq.in). Slab min_quantity is matched against computed_area.
+    The slab's `price_per_unit` is treated as the rate per sq.in.
+    """
+    if length is None or breadth is None or length <= 0 or breadth <= 0:
+        raise HTTPException(400, f"Product '{product.name}' requires positive length and breadth dimensions (inches)")
+    if quantity <= 0:
+        raise HTTPException(400, f"Quantity must be greater than zero for {product.name}")
+    area = length * breadth * quantity
+    # Slab lookup by area (product-wide only — per-variant slabs unsupported for per_area v1)
+    slab = db.query(DiscountSlab).filter(
+        DiscountSlab.product_id == product.id,
+        DiscountSlab.variant_id.is_(None),
+        DiscountSlab.min_quantity <= area,
+    ).order_by(DiscountSlab.min_quantity.desc()).first()
+    if slab and slab.price_per_unit is not None:
+        rate = slab.price_per_unit
+    elif slab and slab.discount_percentage is not None:
+        rate = product.base_price * (1 - slab.discount_percentage / 100.0)
+    else:
+        rate = product.base_price
+    line_total = round(area * rate, 2)
+    return line_total, area, rate, area
+
+
 def calculate_price(product: Product, variant: Optional[ProductVariant], quantity: int, db: Session) -> Tuple[float, float]:
     """Calculate the line total and applied discount percentage.
 
@@ -153,13 +181,34 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         variant = None
         if item.variant_id:
             variant = db.query(ProductVariant).filter(ProductVariant.id == item.variant_id).first()
-        item_total, discount = calculate_price(product, variant, item.quantity, db)
-        unit_price = product.base_price + (variant.price_adjustment if variant else 0)
+
+        # Per-area (formula) pricing for stickers etc.
+        if product.pricing_mode == "per_area":
+            item_total, computed_area, area_rate, _ = calculate_area_price(
+                product, item.dimension_length, item.dimension_breadth, item.quantity, db
+            )
+            # MOQ is in sq.in for per_area — validate against computed_area
+            if product.min_order_qty and computed_area < product.min_order_qty:
+                unit = product.moq_unit or "sq.in"
+                raise HTTPException(400, f"Minimum order for '{product.name}' is {product.min_order_qty} {unit} (you requested {computed_area:.1f} {unit})")
+            unit_price = area_rate  # per sq.in rate
+            discount = 0.0
+            area_info = {
+                "length": item.dimension_length,
+                "breadth": item.dimension_breadth,
+                "area": computed_area,
+                "rate": area_rate,
+            }
+        else:
+            item_total, discount = calculate_price(product, variant, item.quantity, db)
+            unit_price = product.base_price + (variant.price_adjustment if variant else 0)
+            area_info = None
+
         total += item_total
         # Snapshot HSN + GST rate for invoice
         gst_rate = product.gst_rate if product.gst_rate is not None else settings.DEFAULT_GST_RATE
         hsn_code = product.hsn_code
-        items_to_create.append((item, unit_price, item_total, discount, hsn_code, gst_rate))
+        items_to_create.append((item, unit_price, item_total, discount, hsn_code, gst_rate, area_info))
 
     # Apply 10% referral discount only if user opted in
     referral_discount = 0.0
@@ -196,7 +245,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
     # If discounts apply, scale each line proportionally.
     discount_scale = (final_total / total) if total > 0 else 1.0
 
-    for _item, _u, item_total, _d, _hsn, gst_rate in items_to_create:
+    for _item, _u, item_total, _d, _hsn, gst_rate, _ai in items_to_create:
         line_after_discount = round(item_total * discount_scale, 2)
         # Inclusive: taxable = line / (1 + r/100); tax = line - taxable
         taxable = round(line_after_discount / (1.0 + gst_rate / 100.0), 2)
@@ -227,7 +276,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
     db.add(order)
     db.flush()
 
-    for item, unit_price, item_total, discount, hsn_code, gst_rate in items_to_create:
+    for item, unit_price, item_total, discount, hsn_code, gst_rate, area_info in items_to_create:
         db.add(OrderItem(
             order_id=order.id,
             product_id=item.product_id,
@@ -238,6 +287,10 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
             discount_applied=discount,
             hsn_code=hsn_code,
             gst_rate=gst_rate,
+            dimension_length=area_info["length"] if area_info else None,
+            dimension_breadth=area_info["breadth"] if area_info else None,
+            computed_area=area_info["area"] if area_info else None,
+            area_rate=area_info["rate"] if area_info else None,
         ))
 
     db.add(OrderTracking(order_id=order.id, status=OrderStatus.PENDING, note="Order placed"))
@@ -351,6 +404,10 @@ def _build_items_detail(order: Order, db: Session) -> List[dict]:
             "total_price": oi.total_price,
             "hsn_code": oi.hsn_code or "",
             "gst_rate": oi.gst_rate or 0,
+            "dimension_length": oi.dimension_length,
+            "dimension_breadth": oi.dimension_breadth,
+            "computed_area": oi.computed_area,
+            "area_rate": oi.area_rate,
         })
     return items
 
