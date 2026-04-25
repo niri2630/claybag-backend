@@ -117,23 +117,27 @@ def calculate_area_price(product: Product, length: float, breadth: float, quanti
     return line_total, area, rate, area
 
 
-def calculate_price(product: Product, variant: Optional[ProductVariant], quantity: int, db: Session) -> Tuple[float, float]:
-    """Calculate the line total and applied discount percentage.
+def calculate_price(product: Product, variant: Optional[ProductVariant], quantity: int, db: Session, aggregate_quantity: Optional[int] = None) -> Tuple[float, float]:
+    """Compute line total + applied discount %.
+
+    `aggregate_quantity` (optional) is the total quantity across ALL cart lines for this product
+    (across colors/sizes for hybrid mode). Product-wide ("All Variants") slabs are matched against
+    this aggregate so the slab applies whenever the order TOTAL meets the threshold, not just per-line.
+    Variant-specific slabs still match against per-line quantity since they target a specific variant.
+    Defaults to `quantity` when not provided.
 
     Pricing priority for a matched slab:
-      1. If `price_per_unit` is set → use it as the flat per-piece price
-         (variant price_adjustment still applies on top). Returned
-         discount_percentage is 0 because no % was applied — the slab
-         price IS the final price.
-      2. Else if `discount_percentage` is set → apply % off base price.
-      3. Else → no slab, use base price.
+      1. price_per_unit: flat per-piece price (variant adjustment added on top).
+      2. discount_percentage: % off base price.
+      3. No slab: base price.
     """
+    agg_qty = aggregate_quantity if aggregate_quantity is not None else quantity
     variant_adj = variant.price_adjustment if variant else 0
     base = product.base_price + variant_adj
     variant_id = variant.id if variant else None
 
     # Priority: variant-specific slab > product-wide slab
-    # 1. Try variant-specific slab first
+    # 1. Variant-specific slab — uses per-LINE quantity (slab targets this variant only)
     slab = None
     if variant_id:
         slab = db.query(DiscountSlab).filter(
@@ -142,9 +146,7 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
             DiscountSlab.min_quantity <= quantity,
         ).order_by(DiscountSlab.min_quantity.desc()).first()
 
-    # 2. Fall back to product-wide slab ONLY if no variant-specific slabs
-    #    exist at all for this product. If the product uses per-variant slabs,
-    #    variants without their own slab get no discount.
+    # 2. Product-wide ("All Variants") slab — uses AGGREGATE quantity across all sibling lines
     if not slab:
         has_any_variant_slabs = db.query(DiscountSlab).filter(
             DiscountSlab.product_id == product.id,
@@ -155,7 +157,7 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
             slab = db.query(DiscountSlab).filter(
                 DiscountSlab.product_id == product.id,
                 DiscountSlab.variant_id.is_(None),
-                DiscountSlab.min_quantity <= quantity,
+                DiscountSlab.min_quantity <= agg_qty,
             ).order_by(DiscountSlab.min_quantity.desc()).first()
 
     if slab:
@@ -172,6 +174,12 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
 
 @router.post("", response_model=OrderOut)
 def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # Aggregate quantity per product across all line items (so "All Variants" slabs match
+    # the order TOTAL across colors/sizes for hybrid products, not per-line).
+    product_total_qty: dict = {}
+    for it in data.items:
+        product_total_qty[it.product_id] = product_total_qty.get(it.product_id, 0) + (it.quantity or 0)
+
     total = 0.0
     items_to_create = []
     for item in data.items:
@@ -200,7 +208,8 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
                 "rate": area_rate,
             }
         else:
-            item_total, discount = calculate_price(product, variant, item.quantity, db)
+            agg_qty = product_total_qty.get(item.product_id, item.quantity)
+            item_total, discount = calculate_price(product, variant, item.quantity, db, aggregate_quantity=agg_qty)
             unit_price = product.base_price + (variant.price_adjustment if variant else 0)
             area_info = None
 
