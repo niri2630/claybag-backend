@@ -44,6 +44,7 @@ class ProductImageOut(BaseModel):
 class ProductVariantCreate(BaseModel):
     variant_type: str
     variant_value: str
+    variant_unit: Optional[str] = None  # e.g. "sq.in" for sticker area variants
     price_adjustment: float = 0.0
     stock: int = 0
     sku: Optional[str] = None
@@ -52,6 +53,7 @@ class ProductVariantCreate(BaseModel):
 class ProductVariantUpdate(BaseModel):
     variant_type: Optional[str] = None
     variant_value: Optional[str] = None
+    variant_unit: Optional[str] = None
     price_adjustment: Optional[float] = None
     stock: Optional[int] = None
     sku: Optional[str] = None
@@ -61,6 +63,7 @@ class ProductVariantOut(BaseModel):
     id: int
     variant_type: str
     variant_value: str
+    variant_unit: Optional[str] = None
     price_adjustment: float
     stock: int
     sku: Optional[str]

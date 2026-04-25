@@ -60,8 +60,9 @@ class ProductVariant(Base):
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     variant_type = Column(String, nullable=False)   # "size", "color", "material"
-    variant_value = Column(String, nullable=False)  # "XL", "Red", "Cotton"
-    price_adjustment = Column(Float, default=0.0)   # +/- on base_price
+    variant_value = Column(String, nullable=False)  # "XL", "Red", "Cotton", "9" (for area variants)
+    variant_unit = Column(String, nullable=True)    # Optional unit label, e.g. "sq.in" for area variants
+    price_adjustment = Column(Float, default=0.0)   # +/- on base_price (per-piece price for stickers)
     stock = Column(Integer, default=0)
     sku = Column(String, nullable=True)
 

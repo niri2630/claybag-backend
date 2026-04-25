@@ -90,18 +90,20 @@ def _enrich_orders(orders: list, db: Session) -> list:
 
 
 def calculate_area_price(product: Product, length: float, breadth: float, quantity: int, db: Session) -> Tuple[float, float, float, float]:
-    """Per-area (formula) pricing for products like stickers.
+    """Per-area (formula) pricing for products like stickers (custom L × B path).
 
     Returns: (line_total, computed_area, rate_per_sq_in, computed_area_for_slab)
     Total = L x B x quantity (sq.in). Slab min_quantity is matched against computed_area.
     The slab's `price_per_unit` is treated as the rate per sq.in.
+
+    Used only when customer enters custom dimensions (no variant_id). When customer picks
+    a preset size variant on a per_area product, normal `calculate_price` is used instead.
     """
     if length is None or breadth is None or length <= 0 or breadth <= 0:
         raise HTTPException(400, f"Product '{product.name}' requires positive length and breadth dimensions (inches)")
     if quantity <= 0:
         raise HTTPException(400, f"Quantity must be greater than zero for {product.name}")
     area = length * breadth * quantity
-    # Slab lookup by area (product-wide only — per-variant slabs unsupported for per_area v1)
     slab = db.query(DiscountSlab).filter(
         DiscountSlab.product_id == product.id,
         DiscountSlab.variant_id.is_(None),
@@ -109,7 +111,7 @@ def calculate_area_price(product: Product, length: float, breadth: float, quanti
     ).order_by(DiscountSlab.min_quantity.desc()).first()
     if slab and slab.price_per_unit is not None:
         rate = slab.price_per_unit
-    elif slab and slab.discount_percentage is not None:
+    elif slab and slab.discount_percentage:
         rate = product.base_price * (1 - slab.discount_percentage / 100.0)
     else:
         rate = product.base_price
@@ -191,7 +193,11 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
             variant = db.query(ProductVariant).filter(ProductVariant.id == item.variant_id).first()
 
         # Per-area (formula) pricing for stickers etc.
-        if product.pricing_mode == "per_area":
+        # Two sub-paths:
+        #   A) Variant picked → preset size, treat like per_unit (variant.price_adjustment = per-piece price)
+        #   B) Custom L × B → formula pricing on total area
+        if product.pricing_mode == "per_area" and variant is None:
+            # Custom dimensions path
             item_total, computed_area, area_rate, _ = calculate_area_price(
                 product, item.dimension_length, item.dimension_breadth, item.quantity, db
             )
@@ -208,6 +214,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
                 "rate": area_rate,
             }
         else:
+            # per_unit OR per_area+variant: standard variant + slab pricing
             agg_qty = product_total_qty.get(item.product_id, item.quantity)
             item_total, discount = calculate_price(product, variant, item.quantity, db, aggregate_quantity=agg_qty)
             unit_price = product.base_price + (variant.price_adjustment if variant else 0)
