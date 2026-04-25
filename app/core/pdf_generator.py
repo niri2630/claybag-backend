@@ -223,14 +223,26 @@ def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
         label = item["product_name"]
         if item.get("variant_label"):
             label += f' ({item["variant_label"]})'
+        # Per-area item — append dimension breakdown to label so customer sees the full calculation
+        is_area = item.get("computed_area") is not None and item.get("dimension_length") is not None
+        if is_area:
+            L = item.get("dimension_length") or 0
+            B = item.get("dimension_breadth") or 0
+            area = item.get("computed_area") or 0
+            label += f'<br/><font size="7" color="#666666">{L}in &#215; {B}in &#215; {item["quantity"]} pcs = {area:.1f} sq.in</font>'
         gst_rate_disp = f'{item.get("gst_rate", 0):.0f}%' if item.get("gst_rate") else "-"
+        # Qty column: number of stickers; Unit Price: per-sq-in rate for per-area, per-piece otherwise
+        qty_disp = str(item["quantity"])
+        unit_price_disp = f'{RUPEE}{item["unit_price"]:,.2f}'
+        if is_area:
+            unit_price_disp += '<br/><font size="6" color="#888888">/ sq.in</font>'
         item_rows.append([
             Paragraph(str(idx), styles["CellText"]),
             Paragraph(label, styles["CellText"]),
             Paragraph(item.get("hsn_code") or "-", styles["CellText"]),
-            Paragraph(str(item["quantity"]), styles["CellText"]),
+            Paragraph(qty_disp, styles["CellText"]),
             Paragraph(gst_rate_disp, styles["CellText"]),
-            Paragraph(f'{RUPEE}{item["unit_price"]:,.2f}', styles["CellText"]),
+            Paragraph(unit_price_disp, styles["CellText"]),
             Paragraph(f'{RUPEE}{item["total_price"]:,.2f}', styles["CellText"]),
         ])
 
