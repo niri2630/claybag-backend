@@ -152,21 +152,15 @@ def calculate_area_price(product: Product, length: Optional[float], breadth: Opt
             DiscountSlab.min_quantity <= area,
         ).order_by(DiscountSlab.min_quantity.desc()).first()
 
+    # Pricing for per_area is identical for variant path and custom L × B path:
+    # Rate = matched slab.price_per_unit OR product.base_price (₹/sq.in).
+    # Variant just supplies the area number; it doesn't change the rate.
     if slab and slab.price_per_unit is not None:
         rate = slab.price_per_unit
     elif slab and slab.discount_percentage:
-        # Apply % off the implied base rate (variant) or product base_price
-        if variant_area is not None and variant.price_adjustment:
-            base_for_pct = variant.price_adjustment / variant_area
-        else:
-            base_for_pct = product.base_price
-        rate = base_for_pct * (1 - slab.discount_percentage / 100.0)
+        rate = product.base_price * (1 - slab.discount_percentage / 100.0)
     else:
-        # No slab — use variant's implied rate (for size variants) or product base rate
-        if variant_area is not None and variant.price_adjustment:
-            rate = variant.price_adjustment / variant_area
-        else:
-            rate = product.base_price + (variant.price_adjustment if (variant is not None and variant_area is None) else 0.0)
+        rate = product.base_price
 
     line_total = round(area * rate, 2)
     return line_total, area, rate, area
