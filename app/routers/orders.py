@@ -89,32 +89,51 @@ def _enrich_orders(orders: list, db: Session) -> list:
     return [_enrich_order(o, db) for o in orders]
 
 
-def calculate_area_price(product: Product, length: float, breadth: float, quantity: int, db: Session) -> Tuple[float, float, float, float]:
-    """Per-area (formula) pricing for products like stickers (custom L × B path).
+def calculate_area_price(product: Product, length: float, breadth: float, quantity: int, db: Session, variant: Optional[ProductVariant] = None) -> Tuple[float, float, float, float]:
+    """Per-area (formula) pricing for products like stickers.
 
     Returns: (line_total, computed_area, rate_per_sq_in, computed_area_for_slab)
-    Total = L x B x quantity (sq.in). Slab min_quantity is matched against computed_area.
-    The slab's `price_per_unit` is treated as the rate per sq.in.
 
-    Used only when customer enters custom dimensions (no variant_id). When customer picks
-    a preset size variant on a per_area product, normal `calculate_price` is used instead.
+    Total area = L × B × quantity (sq.in). Slab `min_quantity` is matched against this
+    total area. Slab `price_per_unit` is the rate per sq.in.
+
+    If `variant` is provided:
+      - First, look for a variant-scoped slab (variant_id == variant.id) matched against area.
+      - Else fall back to a product-wide slab (variant_id IS NULL).
+      - Variant's `price_adjustment` is added to the rate (so e.g. White at +0.20/sq.in raises
+        the rate above Transparent for the same slab tier).
     """
     if length is None or breadth is None or length <= 0 or breadth <= 0:
         raise HTTPException(400, f"Product '{product.name}' requires positive length and breadth dimensions (inches)")
     if quantity <= 0:
         raise HTTPException(400, f"Quantity must be greater than zero for {product.name}")
     area = length * breadth * quantity
-    slab = db.query(DiscountSlab).filter(
-        DiscountSlab.product_id == product.id,
-        DiscountSlab.variant_id.is_(None),
-        DiscountSlab.min_quantity <= area,
-    ).order_by(DiscountSlab.min_quantity.desc()).first()
+    variant_adj = variant.price_adjustment if variant else 0.0
+
+    slab = None
+    # 1. Variant-scoped slab
+    if variant is not None:
+        slab = db.query(DiscountSlab).filter(
+            DiscountSlab.product_id == product.id,
+            DiscountSlab.variant_id == variant.id,
+            DiscountSlab.min_quantity <= area,
+        ).order_by(DiscountSlab.min_quantity.desc()).first()
+
+    # 2. Product-wide slab (variant_id IS NULL) — applies whether variant is picked or not
+    if slab is None:
+        slab = db.query(DiscountSlab).filter(
+            DiscountSlab.product_id == product.id,
+            DiscountSlab.variant_id.is_(None),
+            DiscountSlab.min_quantity <= area,
+        ).order_by(DiscountSlab.min_quantity.desc()).first()
+
     if slab and slab.price_per_unit is not None:
-        rate = slab.price_per_unit
+        rate = slab.price_per_unit + variant_adj
     elif slab and slab.discount_percentage:
-        rate = product.base_price * (1 - slab.discount_percentage / 100.0)
+        rate = product.base_price * (1 - slab.discount_percentage / 100.0) + variant_adj
     else:
-        rate = product.base_price
+        rate = product.base_price + variant_adj
+
     line_total = round(area * rate, 2)
     return line_total, area, rate, area
 
@@ -193,19 +212,18 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
             variant = db.query(ProductVariant).filter(ProductVariant.id == item.variant_id).first()
 
         # Per-area (formula) pricing for stickers etc.
-        # Two sub-paths:
-        #   A) Variant picked → preset size, treat like per_unit (variant.price_adjustment = per-piece price)
-        #   B) Custom L × B → formula pricing on total area
-        if product.pricing_mode == "per_area" and variant is None:
-            # Custom dimensions path
+        # Customer enters L × B × quantity. Variant (if picked) is a non-size attribute
+        # like material/color (Transparent vs White) — it adjusts the per-sq-in rate.
+        # Slab matches against TOTAL AREA always.
+        if product.pricing_mode == "per_area":
             item_total, computed_area, area_rate, _ = calculate_area_price(
-                product, item.dimension_length, item.dimension_breadth, item.quantity, db
+                product, item.dimension_length, item.dimension_breadth, item.quantity, db, variant=variant
             )
             # MOQ is in sq.in for per_area — validate against computed_area
             if product.min_order_qty and computed_area < product.min_order_qty:
                 unit = product.moq_unit or "sq.in"
                 raise HTTPException(400, f"Minimum order for '{product.name}' is {product.min_order_qty} {unit} (you requested {computed_area:.1f} {unit})")
-            unit_price = area_rate  # per sq.in rate
+            unit_price = area_rate  # per sq.in rate (with variant adjustment baked in)
             discount = 0.0
             area_info = {
                 "length": item.dimension_length,
@@ -214,7 +232,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
                 "rate": area_rate,
             }
         else:
-            # per_unit OR per_area+variant: standard variant + slab pricing
+            # per_unit standard variant + slab pricing
             agg_qty = product_total_qty.get(item.product_id, item.quantity)
             item_total, discount = calculate_price(product, variant, item.quantity, db, aggregate_quantity=agg_qty)
             unit_price = product.base_price + (variant.price_adjustment if variant else 0)
