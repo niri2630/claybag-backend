@@ -165,11 +165,26 @@ def list_featured_products(db: Session = Depends(get_db)):
 
 @router.get("/new-arrivals", response_model=List[ProductOut])
 def list_new_arrivals(limit: int = 30, db: Session = Depends(get_db)):
-    """Get the newest products, ordered by creation date desc.
-    Default limit is 30. Only active products are returned.
+    """Public new arrivals feed.
+
+    Behavior:
+      1. If any active products are flagged is_new_arrival=True, return only those
+         (newest first). This is the admin-curated path.
+      2. Otherwise fall back to the newest active products by created_at desc
+         (so the page is never empty on a fresh install).
+    Default limit is 30. Capped between 1 and 100.
     """
     if limit < 1: limit = 1
     if limit > 100: limit = 100
+    flagged = (
+        db.query(Product)
+        .filter(Product.is_active == True, Product.is_new_arrival == True)
+        .order_by(Product.created_at.desc(), Product.id.desc())
+        .limit(limit)
+        .all()
+    )
+    if flagged:
+        return _enrich_products(flagged, db)
     products = (
         db.query(Product)
         .filter(Product.is_active == True)

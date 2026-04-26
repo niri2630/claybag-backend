@@ -22,6 +22,7 @@ class Product(Base):
     is_active = Column(Boolean, default=True)
     has_variants = Column(Boolean, default=False)  # sizes, colors, etc.
     is_featured = Column(Boolean, default=False)   # show in hot sellers on homepage
+    is_new_arrival = Column(Boolean, default=False)  # admin-curated: show on /new-arrivals page
     min_order_qty = Column(Integer, nullable=True)   # MOQ — null means no minimum (1 unit OK)
     moq_unit = Column(String, nullable=True, default="pcs")  # Unit label for MOQ: "pcs", "sq.in", "kg", etc.
     pricing_mode = Column(String, nullable=True, default="per_unit")  # "per_unit" (default) or "per_area" (L x B x Qty)

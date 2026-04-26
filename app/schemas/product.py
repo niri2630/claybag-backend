@@ -113,6 +113,7 @@ class ProductCreate(BaseModel):
     is_active: bool = True
     has_variants: bool = False
     is_featured: bool = False
+    is_new_arrival: bool = False
     min_order_qty: Optional[int] = None  # null = no MOQ
     moq_unit: Optional[str] = None  # "pcs", "sq.in", "kg", etc. Default "pcs".
     pricing_mode: Optional[str] = None  # "per_unit" (default) or "per_area"
@@ -144,6 +145,7 @@ class ProductUpdate(BaseModel):
     is_active: Optional[bool] = None
     has_variants: Optional[bool] = None
     is_featured: Optional[bool] = None
+    is_new_arrival: Optional[bool] = None
     min_order_qty: Optional[int] = None
     moq_unit: Optional[str] = None
     pricing_mode: Optional[str] = None
@@ -177,6 +179,7 @@ class ProductOut(BaseModel):
     is_active: bool = True
     has_variants: bool = False
     is_featured: bool = False
+    is_new_arrival: bool = False
     min_order_qty: Optional[int] = None
     moq_unit: Optional[str] = "pcs"
     pricing_mode: Optional[str] = "per_unit"
