@@ -163,6 +163,23 @@ def list_featured_products(db: Session = Depends(get_db)):
     return _enrich_products(products, db)
 
 
+@router.get("/new-arrivals", response_model=List[ProductOut])
+def list_new_arrivals(limit: int = 30, db: Session = Depends(get_db)):
+    """Get the newest products, ordered by creation date desc.
+    Default limit is 30. Only active products are returned.
+    """
+    if limit < 1: limit = 1
+    if limit > 100: limit = 100
+    products = (
+        db.query(Product)
+        .filter(Product.is_active == True)
+        .order_by(Product.created_at.desc(), Product.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return _enrich_products(products, db)
+
+
 @router.get("/all", response_model=List[ProductOut])
 def list_all_products(
     subcategory_id: Optional[int] = None,
