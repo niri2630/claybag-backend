@@ -18,6 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Add column (idempotent)
     op.execute("""
         DO $$
         BEGIN
@@ -29,6 +30,19 @@ def upgrade() -> None:
                   ADD COLUMN is_new_arrival BOOLEAN NOT NULL DEFAULT FALSE;
             END IF;
         END $$;
+    """)
+    # Backfill: flag the 30 newest active products as new arrivals so the
+    # public /new-arrivals page keeps showing the same products it was showing
+    # under the date-based fallback. Admin can untoggle any of these later.
+    op.execute("""
+        UPDATE products
+           SET is_new_arrival = TRUE
+         WHERE id IN (
+             SELECT id FROM products
+              WHERE is_active = TRUE
+              ORDER BY created_at DESC NULLS LAST, id DESC
+              LIMIT 30
+         );
     """)
 
 
