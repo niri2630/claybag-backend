@@ -26,6 +26,11 @@ class Product(Base):
     min_order_qty = Column(Integer, nullable=True)   # MOQ — null means no minimum (1 unit OK)
     moq_unit = Column(String, nullable=True, default="pcs")  # Unit label for MOQ: "pcs", "sq.in", "kg", etc.
     pricing_mode = Column(String, nullable=True, default="per_unit")  # "per_unit" (default) or "per_area" (L x B x Qty)
+    # Per-product override of category's variant_mode. When set, takes priority over
+    # category-level default. Supported: "multi_qty", "single_select", "option_dropdown".
+    variant_mode_override = Column(String, nullable=True)
+    # Custom dropdown label when variant_mode == "option_dropdown" (e.g. "Size", "Frame Style").
+    option_label = Column(String, nullable=True)
     branding_info = Column(Text, nullable=True)       # Printing/branding methods (embroidery, screen print, etc.)
     branding_methods = Column(Text, nullable=True)    # JSON array of branding method tags
     size_chart_url = Column(String, nullable=True)    # URL to size chart image (for apparel)
@@ -64,6 +69,10 @@ class ProductVariant(Base):
     variant_value = Column(String, nullable=False)  # "XL", "Red", "Cotton", "9" (for area variants)
     variant_unit = Column(String, nullable=True)    # Optional unit label, e.g. "sq.in" for area variants
     price_adjustment = Column(Float, default=0.0)   # +/- on base_price (per-piece price for stickers)
+    # Used when product.variant_mode_override == "option_dropdown" — full standalone
+    # selling price + MRP per option, replacing base_price/compare_price for that pick.
+    option_price = Column(Float, nullable=True)
+    option_mrp = Column(Float, nullable=True)
     stock = Column(Integer, default=0)
     sku = Column(String, nullable=True)
 

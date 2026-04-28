@@ -181,8 +181,19 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
       3. No slab: base price.
     """
     agg_qty = aggregate_quantity if aggregate_quantity is not None else quantity
-    variant_adj = variant.price_adjustment if variant else 0
-    base = product.base_price + variant_adj
+    # option_dropdown mode: each variant has its OWN full selling price (option_price).
+    # Replaces base_price + price_adjustment for that pick.
+    is_option_dropdown = (
+        getattr(product, "variant_mode_override", None) == "option_dropdown"
+        and variant is not None
+        and getattr(variant, "option_price", None) is not None
+    )
+    if is_option_dropdown:
+        variant_adj = 0.0
+        base = float(variant.option_price)
+    else:
+        variant_adj = variant.price_adjustment if variant else 0
+        base = product.base_price + variant_adj
     variant_id = variant.id if variant else None
 
     # Priority: variant-specific slab > product-wide slab
@@ -266,7 +277,15 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
             # per_unit standard variant + slab pricing
             agg_qty = product_total_qty.get(item.product_id, item.quantity)
             item_total, discount = calculate_price(product, variant, item.quantity, db, aggregate_quantity=agg_qty)
-            unit_price = product.base_price + (variant.price_adjustment if variant else 0)
+            # option_dropdown: unit price is the variant's standalone option_price.
+            if (
+                getattr(product, "variant_mode_override", None) == "option_dropdown"
+                and variant is not None
+                and getattr(variant, "option_price", None) is not None
+            ):
+                unit_price = float(variant.option_price)
+            else:
+                unit_price = product.base_price + (variant.price_adjustment if variant else 0)
             area_info = None
 
         total += item_total

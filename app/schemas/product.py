@@ -46,6 +46,9 @@ class ProductVariantCreate(BaseModel):
     variant_value: str
     variant_unit: Optional[str] = None  # e.g. "sq.in" for sticker area variants
     price_adjustment: float = 0.0
+    # Only used when product.variant_mode == "option_dropdown"
+    option_price: Optional[float] = None
+    option_mrp: Optional[float] = None
     stock: int = 0
     sku: Optional[str] = None
 
@@ -55,6 +58,8 @@ class ProductVariantUpdate(BaseModel):
     variant_value: Optional[str] = None
     variant_unit: Optional[str] = None
     price_adjustment: Optional[float] = None
+    option_price: Optional[float] = None
+    option_mrp: Optional[float] = None
     stock: Optional[int] = None
     sku: Optional[str] = None
 
@@ -65,6 +70,8 @@ class ProductVariantOut(BaseModel):
     variant_value: str
     variant_unit: Optional[str] = None
     price_adjustment: float
+    option_price: Optional[float] = None
+    option_mrp: Optional[float] = None
     stock: int
     sku: Optional[str]
 
@@ -117,6 +124,8 @@ class ProductCreate(BaseModel):
     min_order_qty: Optional[int] = None  # null = no MOQ
     moq_unit: Optional[str] = None  # "pcs", "sq.in", "kg", etc. Default "pcs".
     pricing_mode: Optional[str] = None  # "per_unit" (default) or "per_area"
+    variant_mode_override: Optional[str] = None  # null | "multi_qty" | "single_select" | "option_dropdown"
+    option_label: Optional[str] = None  # dropdown header when variant_mode_override == "option_dropdown"
     size_chart_url: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
@@ -149,6 +158,8 @@ class ProductUpdate(BaseModel):
     min_order_qty: Optional[int] = None
     moq_unit: Optional[str] = None
     pricing_mode: Optional[str] = None
+    variant_mode_override: Optional[str] = None
+    option_label: Optional[str] = None
     size_chart_url: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
@@ -183,10 +194,12 @@ class ProductOut(BaseModel):
     min_order_qty: Optional[int] = None
     moq_unit: Optional[str] = "pcs"
     pricing_mode: Optional[str] = "per_unit"
+    variant_mode_override: Optional[str] = None
+    option_label: Optional[str] = None
     size_chart_url: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
-    variant_mode: str = "multi_qty"  # from parent category
+    variant_mode: str = "multi_qty"  # resolved: override → category default
     created_at: datetime
     images: List[ProductImageOut] = []
     variants: List[ProductVariantOut] = []

@@ -69,14 +69,19 @@ def _generate_unique_slug(db: Session, name: str, exclude_id: Optional[int] = No
 
 
 def _get_variant_mode(p: Product, db: Session) -> str:
-    """Determine variant_mode per product based on its actual variant types.
-    If product has 2+ distinct variant types (e.g. size + color), use single_select.
-    Otherwise fall back to the category's variant_mode or multi_qty."""
+    """Determine variant_mode for a product.
+    Priority:
+      1. p.variant_mode_override if set (admin-chosen, e.g. "option_dropdown").
+      2. "single_select" if product has 2+ distinct variant types (e.g. size + color).
+      3. Parent category's variant_mode.
+      4. Default "multi_qty".
+    """
+    if getattr(p, "variant_mode_override", None):
+        return p.variant_mode_override
     if p.variants:
         distinct_types = set(v.variant_type.lower() for v in p.variants)
         if len(distinct_types) > 1:
             return "single_select"
-    # Fall back to category setting
     sub = db.query(SubCategory).filter(SubCategory.id == p.subcategory_id).first()
     if sub:
         cat = db.query(Category).filter(Category.id == sub.category_id).first()
@@ -104,14 +109,19 @@ def _enrich_products(products: list, db: Session) -> list:
     result = []
     for p in products:
         data = ProductOut.model_validate(p).model_dump()
-        # Check if product has multiple variant types
+        # 1. Per-product override wins (admin-chosen, e.g. "option_dropdown")
+        if getattr(p, "variant_mode_override", None):
+            data["variant_mode"] = p.variant_mode_override
+            result.append(data)
+            continue
+        # 2. Multi-type → single_select auto
         if p.variants:
             distinct_types = set(v.variant_type.lower() for v in p.variants)
             if len(distinct_types) > 1:
                 data["variant_mode"] = "single_select"
                 result.append(data)
                 continue
-        # Fall back to category setting
+        # 3. Fall back to category setting
         if p.subcategory_id not in cat_cache:
             sub = db.query(SubCategory).filter(SubCategory.id == p.subcategory_id).first()
             if sub:
