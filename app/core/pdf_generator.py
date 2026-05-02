@@ -166,7 +166,7 @@ def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
     seller_info = f"""<b>Seller</b><br/>
 {settings.COMPANY_LEGAL_NAME}<br/>
 {settings.COMPANY_STATE}, India<br/>
-{gstin_line}Email: talk2us@claybag.com"""
+{gstin_line}Email: talk2us@claybag.in"""
 
     state_line = f"State: {order.shipping_state}<br/>" if order.shipping_state else ""
     buyer_info = f"""<b>Buyer</b><br/>
@@ -323,7 +323,7 @@ def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
         ParagraphStyle("", fontName=FONT_NAME, fontSize=10, textColor=BLACK, alignment=TA_CENTER, spaceAfter=8),
     ))
     elements.append(Paragraph(
-        "For support, reach out to us at talk2us@claybag.com or call +91 98864 13339",
+        "For support, reach out to us at talk2us@claybag.in or call +91 98864 13339",
         styles["FooterText"],
     ))
     elements.append(Spacer(1, 4 * mm))

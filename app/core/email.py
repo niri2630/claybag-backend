@@ -4,6 +4,7 @@ Uses SMTP (works with Gmail, AWS SES, any SMTP provider).
 """
 import smtplib
 import logging
+import html as html_lib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -14,27 +15,47 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# Canonical mailboxes — the SMTP user must be authorised to send AS these aliases
+# (Google Workspace: Send As alias; SES: verified identity; Zoho: alias mailbox).
+ORDERS_FROM = "orders@claybag.in"
+SUPPORT_FROM = "talk2us@claybag.in"
+PAYMENTS_FROM = "payments@claybag.in"
+
+
 def send_email(
     to_email: str,
     subject: str,
     html_body: str,
     pdf_attachment: Optional[bytes] = None,
     attachment_filename: str = "order-confirmation.pdf",
+    from_email: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    cc: Optional[List[str]] = None,
 ) -> bool:
-    """
-    Send an HTML email with optional PDF attachment.
-    Returns True on success, False on failure (never raises).
+    """Send an HTML email with optional PDF attachment.
+
+    `from_email` overrides the SMTP_FROM default — used to send order confirmations
+    from orders@, support replies from talk2us@, etc.
+    `reply_to` defaults to from_email when not specified, so customer replies land
+    in the right inbox.
     """
     if not settings.SMTP_HOST or not settings.SMTP_USER:
         logger.warning("SMTP not configured — skipping email to %s", to_email)
         return False
 
+    sender = from_email or settings.SMTP_FROM or settings.SMTP_USER
+    reply = reply_to or sender
+
     try:
         msg = MIMEMultipart("mixed")
-        msg["From"] = f"ClayBag <{settings.SMTP_FROM or settings.SMTP_USER}>"
+        msg["From"] = f"ClayBag <{sender}>"
         msg["To"] = to_email
         msg["Subject"] = subject
-        msg["Reply-To"] = settings.SMTP_FROM or settings.SMTP_USER
+        msg["Reply-To"] = reply
+        recipients = [to_email]
+        if cc:
+            msg["Cc"] = ", ".join(cc)
+            recipients.extend(cc)
 
         # HTML body
         html_part = MIMEText(html_body, "html", "utf-8")
@@ -48,20 +69,52 @@ def send_email(
             )
             msg.attach(pdf_part)
 
-        # Send
+        # Send — envelope sender = SMTP user; headers use the alias
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
             if settings.SMTP_TLS:
                 server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            sender = settings.SMTP_FROM or settings.SMTP_USER
-            server.sendmail(sender, [to_email], msg.as_string())
+            server.sendmail(sender, recipients, msg.as_string())
 
-        logger.info("Email sent to %s: %s", to_email, subject)
+        logger.info("Email sent to %s from %s: %s", to_email, sender, subject)
         return True
 
     except Exception as e:
         logger.error("Failed to send email to %s: %s", to_email, e)
         return False
+
+
+def send_contact_email(name: str, sender_email: str, message: str) -> bool:
+    """Forward a Contact Us form submission to talk2us@.
+    Customer's email becomes Reply-To so support can reply directly.
+    """
+    raw_name = (name or "Customer").strip()[:120]
+    raw_email = (sender_email or "").strip()
+    raw_msg = (message or "").strip()
+    # Escape user input — the message lands in our support inbox and we don't
+    # want injected HTML/scripts rendering in our email client.
+    safe_name = html_lib.escape(raw_name)
+    safe_email = html_lib.escape(raw_email)
+    safe_msg = html_lib.escape(raw_msg)
+    html_body = f"""
+    <!DOCTYPE html><html><body style="font-family:Arial,Helvetica,sans-serif;background:#f6f4ef;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #eae8e7;padding:24px;">
+        <h2 style="margin-top:0;font-family:Georgia,serif;">New enquiry via Contact Us</h2>
+        <p><strong>From:</strong> {safe_name} &lt;{safe_email}&gt;</p>
+        <hr style="border:none;border-top:1px solid #eae8e7;margin:16px 0;"/>
+        <p style="white-space:pre-wrap;line-height:1.6;color:#1b1b1b;">{safe_msg}</p>
+        <hr style="border:none;border-top:1px solid #eae8e7;margin:16px 0;"/>
+        <p style="font-size:12px;color:#888;">Reply to this email to respond directly to the customer.</p>
+      </div>
+    </body></html>
+    """
+    return send_email(
+        to_email=SUPPORT_FROM,
+        subject=f"[ClayBag Contact] {raw_name}"[:200],
+        html_body=html_body,
+        from_email=SUPPORT_FROM,
+        reply_to=raw_email or SUPPORT_FROM,
+    )
 
 
 def send_otp_email(to_email: str, otp: str) -> bool:
@@ -97,7 +150,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
             </div>
             <div style="background:#1b1b1b;padding:24px;text-align:center;">
                 <div style="color:#888;font-size:12px;line-height:1.8;">
-                    Need help? Email us at <a href="mailto:talk2us@claybag.com" style="color:#fdc003;">talk2us@claybag.com</a>
+                    Need help? Email us at <a href="mailto:talk2us@claybag.in" style="color:#fdc003;">talk2us@claybag.in</a>
                 </div>
                 <div style="margin-top:16px;color:#555;font-size:10px;letter-spacing:2px;text-transform:uppercase;">
                     ClayBag &mdash; Building Brands Since 2024
@@ -107,7 +160,12 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     </body>
     </html>
     """
-    return send_email(to_email=to_email, subject="Password Reset OTP — ClayBag", html_body=html_body)
+    return send_email(
+        to_email=to_email,
+        subject="Password Reset OTP — ClayBag",
+        html_body=html_body,
+        from_email=SUPPORT_FROM,
+    )
 
 
 def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
@@ -229,7 +287,7 @@ def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
             <!-- Footer -->
             <div style="background:#1b1b1b;padding:24px;text-align:center;">
                 <div style="color:#888;font-size:12px;line-height:1.8;">
-                    Need help? Email us at <a href="mailto:talk2us@claybag.com" style="color:#fdc003;">talk2us@claybag.com</a><br/>
+                    Need help? Email us at <a href="mailto:talk2us@claybag.in" style="color:#fdc003;">talk2us@claybag.in</a><br/>
                     or call <a href="tel:+919886413339" style="color:#fdc003;">+91 98864 13339</a>
                 </div>
                 <div style="margin-top:16px;color:#555;font-size:10px;letter-spacing:2px;text-transform:uppercase;">
@@ -250,4 +308,6 @@ def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
         html_body=html_body,
         pdf_attachment=pdf_bytes,
         attachment_filename=attachment_name,
+        from_email=ORDERS_FROM,
+        reply_to=ORDERS_FROM,
     )
