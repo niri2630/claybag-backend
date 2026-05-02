@@ -34,6 +34,9 @@ class Order(Base):
     payment_status = Column(String, nullable=True)  # Cashfree payment status
     coins_applied = Column(Float, default=0.0)
     referral_discount = Column(Float, default=0.0)
+    # Promo code redemption — null for orders without a code
+    coupon_id = Column(Integer, ForeignKey("coupons.id", ondelete="SET NULL"), nullable=True)
+    coupon_discount = Column(Float, default=0.0, nullable=False)
     # GST breakdown (prices are inclusive — these are computed back from inclusive total)
     shipping_state = Column(String, nullable=True)         # Snapshotted for tax calc
     taxable_amount = Column(Float, nullable=True)          # Sum of (item_total / (1 + gst/100))
@@ -46,6 +49,8 @@ class Order(Base):
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     tracking = relationship("OrderTracking", back_populates="order", cascade="all, delete-orphan")
+    # post_update=True breaks the cycle with coupons.used_by_order_id ↔ orders.coupon_id
+    coupon = relationship("Coupon", foreign_keys=[coupon_id], post_update=True)
 
 
 class OrderItem(Base):

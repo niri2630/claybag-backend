@@ -168,7 +168,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     )
 
 
-def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
+def send_order_confirmation(order, user, items_detail: List[dict], coupon_code: Optional[str] = None) -> bool:
     """
     Send order confirmation email with PDF attachment.
     Called after payment is confirmed.
@@ -179,7 +179,7 @@ def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
 
     # Generate PDF
     try:
-        pdf_bytes = generate_order_pdf(order, user, items_detail)
+        pdf_bytes = generate_order_pdf(order, user, items_detail, coupon_code=coupon_code)
     except Exception as e:
         logger.error("PDF generation failed for order %s: %s", order_num, e)
         pdf_bytes = None
@@ -196,6 +196,45 @@ def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
             <td style="padding:12px 16px;border-bottom:1px solid #eee;text-align:center;font-size:14px;">{item["quantity"]}</td>
             <td style="padding:12px 16px;border-bottom:1px solid #eee;text-align:right;font-size:14px;">&#8377;{item["total_price"]:,.2f}</td>
         </tr>"""
+
+    # ── Totals block: subtotal + each applied discount + final ──────────────
+    items_subtotal = sum(it.get("total_price", 0) or 0 for it in items_detail)
+    coupon_discount = float(getattr(order, "coupon_discount", 0) or 0)
+    # coupon_code is passed in (pre-resolved while DB session was alive — accessing
+    # order.coupon here would lazy-load and could fail in background threads).
+    referral_d = float(getattr(order, "referral_discount", 0) or 0)
+    coins_d = float(getattr(order, "coins_applied", 0) or 0)
+
+    totals_rows = (
+        '<tr><td style="font-size:14px;color:#888;padding:4px 0;">Subtotal</td>'
+        f'<td style="text-align:right;font-size:14px;color:#1b1b1b;">&#8377;{items_subtotal:,.2f}</td></tr>'
+        '<tr><td style="font-size:14px;color:#888;padding:4px 0;">Shipping</td>'
+        '<td style="text-align:right;font-size:14px;color:#22c55e;font-weight:bold;">FREE</td></tr>'
+    )
+    if coupon_discount > 0:
+        label = f"Promo ({coupon_code})" if coupon_code else "Promo discount"
+        totals_rows += (
+            f'<tr><td style="font-size:14px;color:#15803d;padding:4px 0;">{label}</td>'
+            f'<td style="text-align:right;font-size:14px;color:#15803d;font-weight:bold;">-&#8377;{coupon_discount:,.2f}</td></tr>'
+        )
+    if referral_d > 0:
+        totals_rows += (
+            '<tr><td style="font-size:14px;color:#15803d;padding:4px 0;">Referral discount</td>'
+            f'<td style="text-align:right;font-size:14px;color:#15803d;font-weight:bold;">-&#8377;{referral_d:,.2f}</td></tr>'
+        )
+    if coins_d > 0:
+        totals_rows += (
+            '<tr><td style="font-size:14px;color:#785900;padding:4px 0;">Clay Coins</td>'
+            f'<td style="text-align:right;font-size:14px;color:#785900;font-weight:bold;">-&#8377;{coins_d:,.2f}</td></tr>'
+        )
+    totals_rows += (
+        '<tr><td style="font-size:18px;font-weight:bold;color:#1b1b1b;padding:12px 0 0 0;">Order Total</td>'
+        f'<td style="text-align:right;font-size:18px;font-weight:bold;color:#1b1b1b;padding:12px 0 0 0;">&#8377;{order.total_amount:,.2f}</td></tr>'
+    )
+    totals_block = (
+        '<div style="border-top:3px solid #fdc003;padding-top:16px;">'
+        f'<table style="width:100%;">{totals_rows}</table></div>'
+    )
 
     html_body = f"""
     <!DOCTYPE html>
@@ -258,22 +297,7 @@ def send_order_confirmation(order, user, items_detail: List[dict]) -> bool:
                 </table>
 
                 <!-- Totals -->
-                <div style="border-top:3px solid #fdc003;padding-top:16px;">
-                    <table style="width:100%;">
-                        <tr>
-                            <td style="font-size:14px;color:#888;padding:4px 0;">Subtotal</td>
-                            <td style="text-align:right;font-size:14px;color:#1b1b1b;">&#8377;{order.total_amount:,.2f}</td>
-                        </tr>
-                        <tr>
-                            <td style="font-size:14px;color:#888;padding:4px 0;">Shipping</td>
-                            <td style="text-align:right;font-size:14px;color:#22c55e;font-weight:bold;">FREE</td>
-                        </tr>
-                        <tr>
-                            <td style="font-size:18px;font-weight:bold;color:#1b1b1b;padding:12px 0 0 0;">Order Total</td>
-                            <td style="text-align:right;font-size:18px;font-weight:bold;color:#1b1b1b;padding:12px 0 0 0;">&#8377;{order.total_amount:,.2f}</td>
-                        </tr>
-                    </table>
-                </div>
+                {totals_block}
             </div>
 
             <!-- CTA -->

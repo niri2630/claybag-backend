@@ -1,5 +1,6 @@
 import secrets
 import string
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -11,9 +12,11 @@ from app.models.product import Product, ProductVariant, ProductImage, DiscountSl
 from app.models.user import User
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.referral import Referral
+from app.models.coupon import Coupon
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
 from app.core.config import settings
+from app.core.coupons import compute_discount, derive_status, normalise_code
 
 
 def _normalize_state(s: Optional[str]) -> str:
@@ -234,6 +237,24 @@ def calculate_price(product: Product, variant: Optional[ProductVariant], quantit
 
 @router.post("", response_model=OrderOut)
 def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # ── Coupon lock + validation ────────────────────────────────────────────
+    # SELECT ... FOR UPDATE prevents two concurrent orders from both consuming
+    # the same one-time code. Re-validates after locking.
+    locked_coupon: Optional[Coupon] = None
+    if data.coupon_code:
+        try:
+            normalised = normalise_code(data.coupon_code)
+        except ValueError:
+            raise HTTPException(400, "Invalid promo code")
+        locked_coupon = (
+            db.query(Coupon)
+            .filter(Coupon.code == normalised)
+            .with_for_update()
+            .first()
+        )
+        if not locked_coupon or derive_status(locked_coupon) != "active":
+            raise HTTPException(400, "Promo code is invalid or expired")
+
     # Aggregate quantity per product across all line items (so "All Variants" slabs match
     # the order TOTAL across colors/sizes for hybrid products, not per-line).
     product_total_qty: dict = {}
@@ -294,6 +315,14 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         hsn_code = product.hsn_code
         items_to_create.append((item, unit_price, item_total, discount, hsn_code, gst_rate, area_info))
 
+    # ── Apply coupon discount (between line subtotal and referral/coins) ───
+    coupon_discount = 0.0
+    if locked_coupon is not None:
+        coupon_discount = compute_discount(locked_coupon, total)
+        if coupon_discount <= 0:
+            raise HTTPException(400, "Promo code does not apply to this order")
+        total = max(0.0, total - coupon_discount)
+
     # Apply 10% referral discount only if user opted in
     referral_discount = 0.0
     if data.use_referral_discount and current_user.referred_by:
@@ -345,6 +374,8 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         total_amount=final_total,
         coins_applied=coins_applied,
         referral_discount=referral_discount,
+        coupon_id=locked_coupon.id if locked_coupon else None,
+        coupon_discount=coupon_discount,
         shipping_name=data.shipping_name,
         shipping_phone=data.shipping_phone,
         shipping_address=data.shipping_address,
@@ -359,6 +390,13 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
     )
     db.add(order)
     db.flush()
+
+    # Mark coupon redeemed inside the same transaction (atomic with the order
+    # creation — if either fails, both roll back).
+    if locked_coupon is not None:
+        locked_coupon.used_at = datetime.now(timezone.utc)
+        locked_coupon.used_by_order_id = order.id
+        db.add(locked_coupon)
 
     for item, unit_price, item_total, discount, hsn_code, gst_rate, area_info in items_to_create:
         db.add(OrderItem(
@@ -513,8 +551,9 @@ def download_invoice(order_id: int, db: Session = Depends(get_db), current_user=
         raise HTTPException(404, "Order's user not found")
 
     items_detail = _build_items_detail(order, db)
+    coupon_code = order.coupon.code if order.coupon_id and order.coupon else None
     try:
-        pdf_bytes = generate_order_pdf(order, user, items_detail)
+        pdf_bytes = generate_order_pdf(order, user, items_detail, coupon_code=coupon_code)
     except Exception as e:
         raise HTTPException(500, f"Invoice generation failed: {e}")
 
@@ -541,11 +580,13 @@ def resend_invoice_email(order_id: int, db: Session = Depends(get_db), _=Depends
         raise HTTPException(404, "Order's user has no email")
 
     items_detail = _build_items_detail(order, db)
+    coupon_code = order.coupon.code if order.coupon_id and order.coupon else None
 
     # Fire-and-forget: don't block admin response
     threading.Thread(
         target=send_order_confirmation,
         args=(order, user, items_detail),
+        kwargs={"coupon_code": coupon_code},
         daemon=True,
     ).start()
 

@@ -79,6 +79,7 @@ class OrderCreate(BaseModel):
     notes: Optional[str] = None
     coins_applied: Optional[float] = 0.0
     use_referral_discount: Optional[bool] = False
+    coupon_code: Optional[str] = None
     items: List[OrderItemCreate]
 
     @field_validator("shipping_state")
@@ -107,6 +108,8 @@ class OrderOut(BaseModel):
     payment_status: Optional[str] = None
     coins_applied: Optional[float] = 0.0
     referral_discount: Optional[float] = 0.0
+    coupon_id: Optional[int] = None
+    coupon_discount: float = 0.0
     shipping_state: Optional[str] = None
     taxable_amount: Optional[float] = None
     cgst_amount: Optional[float] = 0.0

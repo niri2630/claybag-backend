@@ -3,7 +3,7 @@ Generate a branded order confirmation / GST invoice PDF for ClayBag.
 """
 import io
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -44,7 +44,7 @@ GRAY = colors.HexColor("#666666")
 LIGHT_GRAY = colors.HexColor("#f4f2f0")
 
 
-def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
+def generate_order_pdf(order, user, items_detail: List[dict], coupon_code: Optional[str] = None) -> bytes:
     """
     Generate a PDF order confirmation and return it as bytes.
 
@@ -293,6 +293,14 @@ def generate_order_pdf(order, user, items_detail: List[dict]) -> bytes:
             ])
 
     totals_data.append([Paragraph("Shipping", total_label_style), Paragraph("FREE", total_value_style)])
+    coupon_d = float(getattr(order, "coupon_discount", 0) or 0)
+    if coupon_d > 0:
+        # coupon_code passed in (pre-resolved by caller while session was alive).
+        label = f"Promo Code ({coupon_code})" if coupon_code else "Promo Code"
+        totals_data.append([
+            Paragraph(label, total_label_style),
+            Paragraph(f"-{RUPEE}{coupon_d:,.2f}", total_value_style)
+        ])
     if (order.coins_applied or 0) > 0:
         totals_data.append([
             Paragraph("Clay Coins Applied", total_label_style),

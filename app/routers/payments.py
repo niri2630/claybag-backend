@@ -44,10 +44,15 @@ def _send_confirmation_email(order: Order, db: Session):
                 "gst_rate": oi.gst_rate or 0,
             })
 
+        # Pre-resolve coupon code while session is still alive (background thread
+        # would hit DetachedInstanceError if it lazy-loaded relationship later).
+        coupon_code = order.coupon.code if order.coupon_id and order.coupon else None
+
         # Run in background thread so response isn't delayed
         thread = threading.Thread(
             target=send_order_confirmation,
             args=(order, user, items_detail),
+            kwargs={"coupon_code": coupon_code},
             daemon=True,
         )
         thread.start()
