@@ -83,6 +83,16 @@ def list_coupons(db: Session = Depends(get_db), _admin=Depends(get_current_admin
     return [_to_out(c) for c in rows]
 
 
+@router.get("/public", response_model=List[CouponOut])
+def list_public_coupons(db: Session = Depends(get_db)):
+    """Public listing of currently-redeemable codes — shown on checkout so
+    customers can pick one. Filters to ACTIVE status only (window open, not
+    used, not disabled). Server-side validation still enforces all limits at
+    apply/order time."""
+    rows = db.query(Coupon).order_by(Coupon.valid_until.asc()).all()
+    return [_to_out(c) for c in rows if derive_status(c) == "active"]
+
+
 @router.patch("/{coupon_id}", response_model=CouponOut)
 def update_coupon(
     coupon_id: int,
