@@ -7,4 +7,4 @@ from app.models.review import Review
 from app.models.company_profile import CompanyProfile
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.referral import ReferralCode, Referral
-from app.models.coupon import Coupon
+from app.models.coupon import Coupon, CouponRedemption

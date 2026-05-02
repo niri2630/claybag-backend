@@ -4,7 +4,7 @@ from pydantic import BaseModel, field_validator
 
 
 DiscountType = Literal["percent", "flat"]
-CouponStatus = Literal["active", "scheduled", "expired", "used", "disabled"]
+CouponStatus = Literal["active", "scheduled", "expired", "used", "exhausted", "disabled"]
 
 
 class CouponCreate(BaseModel):
@@ -14,6 +14,19 @@ class CouponCreate(BaseModel):
     min_order_amount: Optional[float] = None
     valid_from: datetime
     valid_until: datetime
+    # Optional caps — any combination, all default null
+    usage_limit: Optional[int] = None
+    usage_limit_per_user: Optional[int] = None
+    first_n_orders_only: Optional[int] = None
+
+    @field_validator("usage_limit", "usage_limit_per_user", "first_n_orders_only")
+    @classmethod
+    def _v_pos(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return None
+        if v < 1:
+            raise ValueError("Cap must be >= 1")
+        return int(v)
 
     @field_validator("code")
     @classmethod
@@ -59,6 +72,10 @@ class CouponOut(BaseModel):
     valid_from: datetime
     valid_until: datetime
     is_active: bool
+    usage_limit: Optional[int] = None
+    usage_limit_per_user: Optional[int] = None
+    first_n_orders_only: Optional[int] = None
+    usage_count: int = 0
     used_at: Optional[datetime] = None
     used_by_order_id: Optional[int] = None
     created_at: datetime

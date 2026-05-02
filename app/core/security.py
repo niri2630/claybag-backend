@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
+from typing import Optional
 from jose import JWTError, jwt
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Header, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -55,3 +56,29 @@ def get_current_admin(current_user=Depends(get_current_user)):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+def get_optional_current_user(
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(default=None),
+):
+    """Auth dependency that returns the user when a valid bearer is present,
+    or None when not (no error). Used by the public coupon-validate endpoint
+    so logged-in customers get per-user / first-N caps checked, while guests
+    can still preview the discount.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        from app.models.user import User
+        payload = decode_token(token)
+        sub = payload.get("sub")
+        if sub is None:
+            return None
+        user = db.query(User).filter(User.id == int(sub)).first()
+        return user
+    except Exception:
+        return None

@@ -12,11 +12,11 @@ from app.models.product import Product, ProductVariant, ProductImage, DiscountSl
 from app.models.user import User
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.referral import Referral
-from app.models.coupon import Coupon
+from app.models.coupon import Coupon, CouponRedemption
 from app.schemas.order import OrderCreate, OrderOut, OrderStatusUpdate
 from app.core.security import get_current_user, get_current_admin
 from app.core.config import settings
-from app.core.coupons import compute_discount, derive_status, normalise_code
+from app.core.coupons import compute_discount, derive_status, normalise_code, per_user_eligibility
 
 
 def _normalize_state(s: Optional[str]) -> str:
@@ -254,6 +254,23 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         )
         if not locked_coupon or derive_status(locked_coupon) != "active":
             raise HTTPException(400, "Promo code is invalid or expired")
+        # Per-user / first-N caps — re-checked here under the lock so race-safe.
+        user_redemptions = (
+            db.query(CouponRedemption)
+            .filter(
+                CouponRedemption.coupon_id == locked_coupon.id,
+                CouponRedemption.user_id == current_user.id,
+            )
+            .count()
+        )
+        user_orders = (
+            db.query(Order)
+            .filter(Order.user_id == current_user.id)
+            .count()
+        )
+        err = per_user_eligibility(locked_coupon, user_redemptions, user_orders)
+        if err is not None:
+            raise HTTPException(400, err)
 
     # Aggregate quantity per product across all line items (so "All Variants" slabs match
     # the order TOTAL across colors/sizes for hybrid products, not per-line).
@@ -392,11 +409,20 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
     db.flush()
 
     # Mark coupon redeemed inside the same transaction (atomic with the order
-    # creation — if either fails, both roll back).
+    # creation — if either fails, both roll back). We bump usage_count, set the
+    # legacy "last used" pointers, and write an audit row so per-user caps work.
     if locked_coupon is not None:
-        locked_coupon.used_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        locked_coupon.usage_count = (locked_coupon.usage_count or 0) + 1
+        locked_coupon.used_at = now
         locked_coupon.used_by_order_id = order.id
         db.add(locked_coupon)
+        db.add(CouponRedemption(
+            coupon_id=locked_coupon.id,
+            user_id=current_user.id,
+            order_id=order.id,
+            redeemed_at=now,
+        ))
 
     for item, unit_price, item_total, discount, hsn_code, gst_rate, area_info in items_to_create:
         db.add(OrderItem(

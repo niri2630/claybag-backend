@@ -11,10 +11,16 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.coupons import compute_discount, derive_status, normalise_code
+from app.core.coupons import (
+    compute_discount,
+    derive_status,
+    normalise_code,
+    per_user_eligibility,
+)
 from app.database import get_db
-from app.models.coupon import Coupon
-from app.core.security import get_current_admin
+from app.models.coupon import Coupon, CouponRedemption
+from app.models.order import Order
+from app.core.security import get_current_admin, get_optional_current_user
 from app.schemas.coupon import (
     CouponCreate,
     CouponOut,
@@ -39,6 +45,10 @@ def _to_out(c: Coupon) -> dict:
         "valid_from": c.valid_from,
         "valid_until": c.valid_until,
         "is_active": c.is_active,
+        "usage_limit": c.usage_limit,
+        "usage_limit_per_user": c.usage_limit_per_user,
+        "first_n_orders_only": c.first_n_orders_only,
+        "usage_count": c.usage_count or 0,
         "used_at": c.used_at,
         "used_by_order_id": c.used_by_order_id,
         "created_at": c.created_at,
@@ -69,6 +79,9 @@ def create_coupon(
         valid_from=data.valid_from,
         valid_until=data.valid_until,
         is_active=True,
+        usage_limit=data.usage_limit,
+        usage_limit_per_user=data.usage_limit_per_user,
+        first_n_orders_only=data.first_n_orders_only,
         created_by_user_id=getattr(admin, "id", None),
     )
     db.add(c)
@@ -131,8 +144,18 @@ def delete_coupon(
 
 
 @router.post("/validate", response_model=CouponValidateResponse)
-def validate_coupon(payload: CouponValidateRequest, db: Session = Depends(get_db)):
-    """Public dry-run. Generic error for any failure to avoid leaking info."""
+def validate_coupon(
+    payload: CouponValidateRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_optional_current_user),
+):
+    """Public dry-run with optional auth.
+
+    When the request carries a valid bearer token we run the per-user and
+    first-N-orders caps as well, so logged-in customers get an immediate
+    "code already redeemed" / "new customers only" error at apply time
+    instead of waiting until checkout submission.
+    """
     try:
         code = normalise_code(payload.code)
     except ValueError:
@@ -141,6 +164,25 @@ def validate_coupon(payload: CouponValidateRequest, db: Session = Depends(get_db
     c = db.query(Coupon).filter(Coupon.code == code).first()
     if c is None or derive_status(c) != "active":
         return CouponValidateResponse(ok=False, error=GENERIC_INVALID)
+
+    # Per-user / first-N caps (only when we have a user)
+    if current_user is not None:
+        user_redemptions = (
+            db.query(CouponRedemption)
+            .filter(
+                CouponRedemption.coupon_id == c.id,
+                CouponRedemption.user_id == current_user.id,
+            )
+            .count()
+        )
+        user_orders = (
+            db.query(Order)
+            .filter(Order.user_id == current_user.id)
+            .count()
+        )
+        err = per_user_eligibility(c, user_redemptions, user_orders)
+        if err is not None:
+            return CouponValidateResponse(ok=False, error=err)
 
     discount = compute_discount(c, payload.subtotal)
     if discount <= 0:

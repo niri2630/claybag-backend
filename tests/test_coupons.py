@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.coupons import compute_discount, derive_status, normalise_code
+from app.core.coupons import compute_discount, derive_status, is_exhausted, normalise_code, per_user_eligibility
 
 
 def _coupon(**kw):
@@ -23,6 +23,10 @@ def _coupon(**kw):
         valid_until=now + timedelta(hours=1),
         is_active=True,
         used_at=None,
+        usage_limit=None,
+        usage_limit_per_user=None,
+        first_n_orders_only=None,
+        usage_count=0,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -106,3 +110,62 @@ def test_status_used_takes_precedence_over_expired():
         valid_until=now - timedelta(hours=1),
     )
     assert derive_status(c) == "used"
+
+
+# ── usage caps: is_exhausted + status ───────────────────────────────────────
+
+def test_is_exhausted_legacy_one_time_via_used_at():
+    c = _coupon(used_at=datetime.now(timezone.utc), usage_limit=None)
+    assert is_exhausted(c) is True
+
+
+def test_is_exhausted_cap_based_under_limit():
+    c = _coupon(usage_limit=5, usage_count=3)
+    assert is_exhausted(c) is False
+
+
+def test_is_exhausted_cap_based_at_limit():
+    c = _coupon(usage_limit=5, usage_count=5)
+    assert is_exhausted(c) is True
+
+
+def test_status_exhausted_when_cap_reached():
+    c = _coupon(usage_limit=10, usage_count=10)
+    assert derive_status(c) == "exhausted"
+
+
+def test_status_active_when_cap_set_but_not_reached():
+    c = _coupon(usage_limit=10, usage_count=3)
+    assert derive_status(c) == "active"
+
+
+# ── per_user_eligibility ────────────────────────────────────────────────────
+
+def test_per_user_no_caps_passes():
+    c = _coupon()
+    assert per_user_eligibility(c, user_redemption_count=5, user_order_count=10) is None
+
+
+def test_per_user_blocks_when_user_cap_reached():
+    c = _coupon(usage_limit_per_user=2)
+    assert per_user_eligibility(c, user_redemption_count=2, user_order_count=0) is not None
+
+
+def test_per_user_passes_when_under_user_cap():
+    c = _coupon(usage_limit_per_user=2)
+    assert per_user_eligibility(c, user_redemption_count=1, user_order_count=0) is None
+
+
+def test_first_n_orders_blocks_when_count_reached():
+    c = _coupon(first_n_orders_only=3)
+    assert per_user_eligibility(c, user_redemption_count=0, user_order_count=3) is not None
+
+
+def test_first_n_orders_passes_under_threshold():
+    c = _coupon(first_n_orders_only=3)
+    assert per_user_eligibility(c, user_redemption_count=0, user_order_count=2) is None
+
+
+def test_first_n_orders_passes_at_zero():
+    c = _coupon(first_n_orders_only=3)
+    assert per_user_eligibility(c, user_redemption_count=0, user_order_count=0) is None
