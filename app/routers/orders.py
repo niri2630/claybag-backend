@@ -254,6 +254,12 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), current_user=
         )
         if not locked_coupon or derive_status(locked_coupon) != "active":
             raise HTTPException(400, "Promo code is invalid or expired")
+        # Pinned-to-specific-users coupon? Reject if current user isn't on the list.
+        coupon_assignments = list(getattr(locked_coupon, "assignments", []) or [])
+        if coupon_assignments and not any(
+            a.user_id == current_user.id for a in coupon_assignments
+        ):
+            raise HTTPException(400, "Promo code is invalid or expired")
         # Per-user / first-N caps — re-checked here under the lock so race-safe.
         user_redemptions = (
             db.query(CouponRedemption)

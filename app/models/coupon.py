@@ -30,6 +30,20 @@ class Coupon(Base):
     used_by_order = relationship("Order", foreign_keys=[used_by_order_id])
     created_by = relationship("User", foreign_keys=[created_by_user_id])
     redemptions = relationship("CouponRedemption", back_populates="coupon", cascade="all, delete-orphan")
+    assignments = relationship("CouponAssignment", back_populates="coupon", cascade="all, delete-orphan")
+
+
+class CouponAssignment(Base):
+    """Pin a coupon to a specific customer. Empty list -> open to anyone."""
+    __tablename__ = "coupon_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    coupon_id = Column(Integer, ForeignKey("coupons.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    coupon = relationship("Coupon", back_populates="assignments")
+    user = relationship("User")
 
 
 class CouponRedemption(Base):

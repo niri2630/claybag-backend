@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, field_validator
 
 
@@ -18,6 +18,9 @@ class CouponCreate(BaseModel):
     usage_limit: Optional[int] = None
     usage_limit_per_user: Optional[int] = None
     first_n_orders_only: Optional[int] = None
+    # Empty list -> coupon is open to anyone with the code.
+    # Non-empty -> only listed users can redeem.
+    assigned_user_ids: List[int] = []
 
     @field_validator("usage_limit", "usage_limit_per_user", "first_n_orders_only")
     @classmethod
@@ -61,6 +64,17 @@ class CouponCreate(BaseModel):
 class CouponUpdate(BaseModel):
     valid_until: Optional[datetime] = None
     is_active: Optional[bool] = None
+    # null -> leave assignments unchanged. [] -> clear all. [1,2] -> replace.
+    assigned_user_ids: Optional[List[int]] = None
+
+
+class CouponAssigneeOut(BaseModel):
+    id: int
+    name: str
+    email: str
+
+    class Config:
+        from_attributes = True
 
 
 class CouponOut(BaseModel):
@@ -80,6 +94,8 @@ class CouponOut(BaseModel):
     used_by_order_id: Optional[int] = None
     created_at: datetime
     status: CouponStatus
+    assigned_user_ids: List[int] = []
+    assigned_users: List[CouponAssigneeOut] = []
 
     class Config:
         from_attributes = True

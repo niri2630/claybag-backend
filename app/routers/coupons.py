@@ -6,7 +6,7 @@ PATCH  /coupons/{id}        — admin: toggle active / extend valid_until
 DELETE /coupons/{id}        — admin: delete (only if never used)
 POST   /coupons/validate    — public: dry-run apply, returns discount or error
 """
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -18,9 +18,14 @@ from app.core.coupons import (
     per_user_eligibility,
 )
 from app.database import get_db
-from app.models.coupon import Coupon, CouponRedemption
+from app.models.coupon import Coupon, CouponAssignment, CouponRedemption
 from app.models.order import Order
-from app.core.security import get_current_admin, get_optional_current_user
+from app.models.user import User
+from app.core.security import (
+    get_current_admin,
+    get_current_user,
+    get_optional_current_user,
+)
 from app.schemas.coupon import (
     CouponCreate,
     CouponOut,
@@ -36,6 +41,12 @@ GENERIC_INVALID = "Invalid or expired code"
 
 
 def _to_out(c: Coupon) -> dict:
+    assignments = list(getattr(c, "assignments", []) or [])
+    assigned_users = [
+        {"id": a.user.id, "name": a.user.name, "email": a.user.email}
+        for a in assignments
+        if a.user is not None
+    ]
     return {
         "id": c.id,
         "code": c.code,
@@ -53,7 +64,39 @@ def _to_out(c: Coupon) -> dict:
         "used_by_order_id": c.used_by_order_id,
         "created_at": c.created_at,
         "status": derive_status(c),
+        "assigned_user_ids": [a.user_id for a in assignments],
+        "assigned_users": assigned_users,
     }
+
+
+def _set_assignments(db: Session, coupon: Coupon, user_ids: List[int]) -> None:
+    """Replace the coupon's assignment list with the given user_ids.
+
+    Deduplicates and silently drops user_ids that don't resolve to existing
+    users (defensive — admin UI always sends real ids).
+    """
+    unique_ids = list({int(uid) for uid in user_ids})
+    valid_ids: List[int] = []
+    if unique_ids:
+        rows = db.query(User.id).filter(User.id.in_(unique_ids)).all()
+        valid_ids = [r[0] for r in rows]
+
+    # Drop existing
+    db.query(CouponAssignment).filter(CouponAssignment.coupon_id == coupon.id).delete(
+        synchronize_session=False
+    )
+    for uid in valid_ids:
+        db.add(CouponAssignment(coupon_id=coupon.id, user_id=uid))
+
+
+def _user_is_eligible(coupon: Coupon, user_id: Optional[int]) -> bool:
+    """If the coupon has any assignments, user must be in the list."""
+    assignments = list(getattr(coupon, "assignments", []) or [])
+    if not assignments:
+        return True
+    if user_id is None:
+        return False
+    return any(a.user_id == user_id for a in assignments)
 
 
 @router.post("", response_model=CouponOut)
@@ -85,6 +128,9 @@ def create_coupon(
         created_by_user_id=getattr(admin, "id", None),
     )
     db.add(c)
+    db.flush()  # need c.id before inserting assignments
+    if data.assigned_user_ids:
+        _set_assignments(db, c, data.assigned_user_ids)
     db.commit()
     db.refresh(c)
     return _to_out(c)
@@ -96,13 +142,25 @@ def list_coupons(db: Session = Depends(get_db), _admin=Depends(get_current_admin
     return [_to_out(c) for c in rows]
 
 
-@router.get("/public", response_model=List[CouponOut])
-def list_public_coupons(db: Session = Depends(get_db)):
-    """Public listing of currently-redeemable codes — shown on checkout so
-    customers can pick one. Filters to ACTIVE status only (window open, not
-    used, not disabled). Server-side validation still enforces all limits at
-    apply/order time."""
-    rows = db.query(Coupon).order_by(Coupon.valid_until.asc()).all()
+@router.get("/my", response_model=List[CouponOut])
+def list_my_coupons(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Coupons currently available to the logged-in customer.
+
+    Returns active coupons that are explicitly assigned to this user (via the
+    coupon_assignments table). Open (unassigned) coupons are NOT listed here —
+    those are private codes shared out-of-band and the customer is expected to
+    type them at checkout.
+    """
+    rows = (
+        db.query(Coupon)
+        .join(CouponAssignment, CouponAssignment.coupon_id == Coupon.id)
+        .filter(CouponAssignment.user_id == current_user.id)
+        .order_by(Coupon.valid_until.asc())
+        .all()
+    )
     return [_to_out(c) for c in rows if derive_status(c) == "active"]
 
 
@@ -122,6 +180,8 @@ def update_coupon(
         c.valid_until = data.valid_until
     if data.is_active is not None:
         c.is_active = data.is_active
+    if data.assigned_user_ids is not None:
+        _set_assignments(db, c, data.assigned_user_ids)
     db.commit()
     db.refresh(c)
     return _to_out(c)
@@ -163,6 +223,11 @@ def validate_coupon(
 
     c = db.query(Coupon).filter(Coupon.code == code).first()
     if c is None or derive_status(c) != "active":
+        return CouponValidateResponse(ok=False, error=GENERIC_INVALID)
+
+    # User-pinned coupon: must be on the assignment list.
+    user_id = getattr(current_user, "id", None)
+    if not _user_is_eligible(c, user_id):
         return CouponValidateResponse(ok=False, error=GENERIC_INVALID)
 
     # Per-user / first-N caps (only when we have a user)
