@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""  # display "From" email (defaults to SMTP_USER)
     SMTP_TLS: bool = True
 
+    # Mailchimp (newsletter subscription via Mailchimp Marketing API)
+    MAILCHIMP_API_KEY: str = ""
+    MAILCHIMP_SERVER: str = ""  # e.g. "us20" — the suffix from your API key
+    MAILCHIMP_LIST_ID: str = ""  # the Audience ID
+
     # GST / Tax compliance
     COMPANY_STATE: str = "Karnataka"  # Registered business state — used for intra/inter state GST split
     COMPANY_GSTIN: str = ""  # Company GST identification number (shown on invoices)

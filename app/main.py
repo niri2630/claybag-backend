@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from app.core.config import settings
-from app.routers import auth, categories, products, uploads, users, orders, dashboard, payments, addresses, reviews, company_profiles, wallet, referrals, reports, contact, coupons
+from app.routers import auth, categories, products, uploads, users, orders, dashboard, payments, addresses, reviews, company_profiles, wallet, referrals, reports, contact, coupons, newsletter
 
 app = FastAPI(title="ClayBag API", version="1.0.0")
 
@@ -18,7 +18,7 @@ app.add_middleware(
 
 # Register all routers both with and without /api prefix
 # This allows the app to work behind ALB (/api/*) and locally (/*)
-all_routers = [auth, categories, products, uploads, users, orders, dashboard, payments, addresses, reviews, company_profiles, wallet, referrals, reports, contact, coupons]
+all_routers = [auth, categories, products, uploads, users, orders, dashboard, payments, addresses, reviews, company_profiles, wallet, referrals, reports, contact, coupons, newsletter]
 
 for r in all_routers:
     app.include_router(r.router)
