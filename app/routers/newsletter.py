@@ -3,14 +3,19 @@
 Reads MAILCHIMP_API_KEY, MAILCHIMP_SERVER, MAILCHIMP_LIST_ID from settings.
 If any is missing, returns 503 with a generic message (so the frontend can
 show a graceful fallback without leaking config status).
+
+Uses urllib (stdlib) so no extra dependency is required.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import logging
+import urllib.error
+import urllib.request
 from typing import Optional
 
-import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -50,6 +55,28 @@ def _md5_lower(email: str) -> str:
     return hashlib.md5(email.lower().encode("utf-8")).hexdigest()
 
 
+def _put_json(url: str, payload: dict, api_key: str, timeout: float = 10.0):
+    """PUT request with Basic Auth — returns (status_code, body_bytes)."""
+    data = json.dumps(payload).encode("utf-8")
+    auth_str = base64.b64encode(f"anystring:{api_key}".encode("utf-8")).decode("ascii")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="PUT",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {auth_str}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        # Mailchimp returns 4xx with JSON body — read it for details
+        return e.code, e.read()
+    # Other errors (URLError, timeout) bubble up to caller
+
+
 @router.post("/subscribe", response_model=SubscribeResponse)
 def subscribe(req: SubscribeRequest) -> SubscribeResponse:
     api_key = (settings.MAILCHIMP_API_KEY or "").strip()
@@ -79,52 +106,43 @@ def subscribe(req: SubscribeRequest) -> SubscribeResponse:
         payload["merge_fields"] = merge_fields
 
     if req.source:
-        # Mailchimp stores tags via a different endpoint, but we can pass them
-        # on initial subscribe as well using the "tags" array.
         payload["tags"] = [req.source[:50]]
 
     try:
-        # PUT upserts the member by hash — works for new and existing.
-        resp = requests.put(
-            url,
-            json=payload,
-            auth=("anystring", api_key),
-            timeout=10,
-        )
-    except requests.RequestException as e:
+        status_code, body_bytes = _put_json(url, payload, api_key)
+    except (urllib.error.URLError, TimeoutError) as e:
         logger.error("Mailchimp request failed: %s", e)
         raise HTTPException(status_code=502, detail="Couldn't reach our newsletter system. Try again.")
+    except Exception as e:  # noqa: BLE001 — defensive catch-all on outbound request
+        logger.error("Mailchimp request unexpected error: %s", e)
+        raise HTTPException(status_code=502, detail="Couldn't reach our newsletter system. Try again.")
 
-    if resp.status_code in (200, 201):
+    if status_code in (200, 201):
         return SubscribeResponse(ok=True, message="You're on the list!")
 
     # Mailchimp error responses: { "title": "...", "detail": "..." }
     try:
-        body = resp.json()
-    except ValueError:
+        body = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+    except (ValueError, UnicodeDecodeError):
         body = {}
 
     title = (body.get("title") or "").strip()
     detail = (body.get("detail") or "").strip()
+    combined = (title + " " + detail).lower()
 
-    # Common cases — map to user-friendly messages.
-    if resp.status_code == 400:
-        # "Member Exists" can occur if the audience has already-archived users
-        # or if double opt-in is set up and the user is in pending state.
-        if "exists" in (title + detail).lower():
+    if status_code == 400:
+        if "exists" in combined:
             return SubscribeResponse(ok=True, message="You're already subscribed.")
         if "fake" in detail.lower() or "looks fake" in detail.lower():
             raise HTTPException(status_code=400, detail="Please use a real email address.")
         if "invalid" in detail.lower():
             raise HTTPException(status_code=400, detail="Please enter a valid email.")
-        # Generic 400
         logger.warning("Mailchimp 400 — title=%s detail=%s", title, detail)
         raise HTTPException(status_code=400, detail="Could not subscribe — check your email and try again.")
 
-    if resp.status_code in (401, 403):
-        # Auth failure — never expose to user.
+    if status_code in (401, 403):
         logger.error("Mailchimp auth failed — title=%s detail=%s", title, detail)
         raise HTTPException(status_code=503, detail="Newsletter is not available right now.")
 
-    logger.error("Mailchimp unexpected status=%s title=%s detail=%s", resp.status_code, title, detail)
+    logger.error("Mailchimp unexpected status=%s title=%s detail=%s", status_code, title, detail)
     raise HTTPException(status_code=502, detail="Couldn't reach our newsletter system. Try again.")
